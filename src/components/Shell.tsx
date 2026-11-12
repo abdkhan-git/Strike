@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Search } from "lucide-react";
+import { MessageSquare, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -9,6 +9,7 @@ import { session } from "@/lib/session";
 import type { ProviderInfo } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
 import { AlertBell } from "./AlertBell";
+import { ChatPanel } from "./ChatPanel";
 import { CommandPalette } from "./CommandPalette";
 import { TickerTape } from "./TickerTape";
 
@@ -16,8 +17,7 @@ const NAV = [
   { href: "/", label: "Scanner" },
   { href: "/calculator", label: "Calculator" },
   { href: "/positions", label: "Positions" },
-  { href: "/picks", label: "Picks" },
-  { href: "/plan", label: "Plan" },
+  { href: "/plan", label: "Plan & picks" },
 ];
 
 function MarketClock() {
@@ -43,6 +43,7 @@ function MarketClock() {
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const [palette, setPalette] = useState(false);
+  const [chat, setChat] = useState(false);
   const { data: info } = usePoll<ProviderInfo>("/api/status", 60_000);
 
   useEffect(() => {
@@ -96,6 +97,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="hidden sm:block">Search any ticker</span>
             <kbd className="num ml-auto hidden text-[10.5px] text-faint sm:block">Ctrl K</kbd>
           </button>
+          <button
+            onClick={() => setChat(true)}
+            className="flex h-7 items-center gap-2 bg-fg px-2.5 text-[12px] font-medium text-bg transition-colors hover:bg-white"
+          >
+            <MessageSquare size={13} />
+            <span className="hidden sm:block">Ask Strike</span>
+          </button>
           <AlertBell />
           <MarketClock />
           {info && (
@@ -117,6 +125,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </footer>
 
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
+      {chat && <ChatPanel onClose={() => setChat(false)} />}
     </div>
   );
 }

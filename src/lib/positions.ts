@@ -2,8 +2,9 @@ import { dteOf } from "./analytics";
 import { syncFromBroker } from "./broker";
 import { intrinsic } from "./bs";
 import { chartOf, contractOf, provider } from "./market";
-import { readTrades, writeTrades } from "./store";
-import type { Trade, TradeView } from "./types";
+import { readTheses, readTrades, writeTheses, writeTrades } from "./store";
+import { analyze, type Analysis } from "./thesis";
+import type { Thesis, Trade, TradeView, Verdict } from "./types";
 import { verdictOf } from "./verdict";
 
 /**
@@ -47,12 +48,16 @@ export async function tradeViews(): Promise<TradeView[]> {
   const open = trades.filter((t) => t.status === "open");
   const symbols = [...new Set(open.map((t) => t.underlying))];
   const p = provider();
-  const [quotes, universe, charts] = await Promise.all([
+  const [quotes, universe, analyses, theses] = await Promise.all([
     symbols.length ? p.quotes(symbols).catch(() => ({})) : {},
     p.universe().catch(() => []),
-    Promise.all(symbols.map((s) => chartOf(s).catch(() => undefined))),
+    Promise.all(symbols.map((s) => analyze(s).catch(() => undefined))),
+    readTheses(),
   ]);
-  const chartBy = new Map(symbols.map((s, i) => [s, charts[i]]));
+  const analysisBy = new Map(symbols.map((s, i) => [s, analyses[i]]));
+  const thesisBy = new Map(theses.map((t) => [t.occ, t]));
+  const created = await ensureTheses(open, analysisBy, thesisBy);
+  if (created.length) await writeTheses([...theses, ...created].slice(-300));
 
   const views: TradeView[] = await Promise.all(
     trades.map(async (t) => {
@@ -64,7 +69,7 @@ export async function tradeViews(): Promise<TradeView[]> {
       const c = spot ? await contractOf(t.underlying, t.expiration, t.occ, spot) : undefined;
       const mark = c && c.mid > 0 ? c.mid : undefined;
       const px = mark ?? t.entryPrice;
-      const chart = chartBy.get(t.underlying);
+      const analysis = analysisBy.get(t.underlying);
       return {
         ...t,
         mark,
@@ -72,14 +77,72 @@ export async function tradeViews(): Promise<TradeView[]> {
         pnlPct: t.entryPrice > 0 ? px / t.entryPrice - 1 : 0,
         verdict:
           c && mark && spot
-            ? verdictOf(t, c, spot, {
-                outlook: chart?.outlook,
-                trend: chart?.trend,
-                catalyst: universe.find((u) => u.symbol === t.underlying)?.catalyst,
-              })
+            ? steady(
+                t.id,
+                verdictOf(t, c, spot, {
+                  analysis,
+                  thesis: thesisBy.get(t.occ),
+                  catalyst: universe.find((u) => u.symbol === t.underlying)?.catalyst,
+                }),
+              )
             : undefined,
       };
     }),
   );
   return views.sort((a, b) => b.entryAt - a.entryAt);
+}
+
+/**
+ * A thesis for every open position. Picks carry their own; anything else (a trade made
+ * outside the picks) gets one from the full analysis the first time it is seen: the case
+ * is whatever the analysis says, and it is wrong once the stock passes the nearest
+ * support (calls) or resistance (puts) by a quarter of a day's average range.
+ */
+async function ensureTheses(open: Trade[], analysisBy: Map<string, Analysis | undefined>, thesisBy: Map<string, Thesis>) {
+  const made: Thesis[] = [];
+  for (const t of open) {
+    if (thesisBy.has(t.occ)) continue;
+    const a = analysisBy.get(t.underlying);
+    if (!a) continue;
+    const call = t.type === "call";
+    const inv = call ? a.levels.support - 0.25 * a.levels.atr : a.levels.resistance + 0.25 * a.levels.atr;
+    const th: Thesis = {
+      occ: t.occ,
+      symbol: t.underlying,
+      direction: call ? "bullish" : "bearish",
+      text: `${call ? "Bullish" : "Bearish"} ${t.underlying}: opened outside the picks; the full analysis was ${a.score > 0 ? "+" : ""}${a.score}/100 when Strike first saw it.`,
+      invalidation: Math.round(inv * 100) / 100,
+      invalidationReason: call ? "below the nearest support" : "above the nearest resistance",
+      scoreAtEntry: a.score,
+      at: Date.now(),
+      source: "auto",
+    };
+    thesisBy.set(t.occ, th);
+    made.push(th);
+  }
+  return made;
+}
+
+/**
+ * Keeps a judgement call from flickering. Hard exits (target, stop, thesis broken, time)
+ * show at once; any other change of call must hold for 90 seconds before it is shown.
+ */
+const g = globalThis as { __strikeCalls?: Map<string, { shown: Verdict; pending?: { call: string; since: number } }> };
+const calls = (g.__strikeCalls ??= new Map());
+const CONFIRM_MS = 90_000;
+
+function steady(id: string, v: Verdict): Verdict {
+  const prev = calls.get(id);
+  if (!prev || v.urgent || prev.shown.call === v.call) {
+    calls.set(id, { shown: v });
+    return v;
+  }
+  const pending = prev.pending?.call === v.call ? prev.pending : { call: v.call, since: Date.now() };
+  if (Date.now() - pending.since >= CONFIRM_MS) {
+    calls.set(id, { shown: v });
+    return v;
+  }
+  calls.set(id, { shown: prev.shown, pending });
+  // keep the earlier call but with today's numbers, so prices and P/L stay live
+  return { ...v, call: prev.shown.call, headline: prev.shown.headline, move: prev.shown.move, quality: prev.shown.quality, tone: prev.shown.tone, action: prev.shown.action, doNow: prev.shown.doNow };
 }

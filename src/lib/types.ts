@@ -253,6 +253,12 @@ export interface Verdict {
   sellBy: string;
   /** the exact order to place now, e.g. "Sell 2 of 4 now at a limit of $6.20." */
   doNow: string;
+  /** a hard exit (target, stop, thesis broken, time): shown at once instead of waiting to confirm */
+  urgent: boolean;
+  /** the case the position was opened on, and the stock price that breaks it */
+  thesis?: { text: string; invalidation: number; reason: string; source: "pick" | "auto" };
+  /** full analysis score now, -100..+100, and at entry */
+  analysis?: { score: number; atEntry: number; reversalSigns: string[] };
 }
 
 export interface PlanSettings {
@@ -266,19 +272,11 @@ export interface PlanSettings {
   /** stop trading for the day after losing this share of the account, e.g. 0.1 */
   dailyLossLimit: number;
   maxOpen: number;
+  /** how hard to push: sets the defaults above plus how many picks and which expiries */
+  style?: PlanStyle;
 }
 
-/** A sized trade candidate for today, taken from the strongest signals. */
-export interface PlanIdea {
-  symbol: string;
-  direction: "bullish" | "bearish";
-  horizon: Horizon;
-  conviction: number;
-  contract: Enriched;
-  qty: number;
-  cost: number;
-  why: string;
-}
+export type PlanStyle = "focused" | "steady" | "aggressive" | "max";
 
 export interface PlanView {
   settings: PlanSettings;
@@ -300,7 +298,6 @@ export interface PlanView {
   /** why today's budget is what it is, and anything else the day's rules say */
   notes: string[];
   halted: boolean;
-  ideas: PlanIdea[];
 }
 
 export interface BrokerAccount {
@@ -354,6 +351,29 @@ export interface TradePick {
   /** stock move needed to break even, as a share of a typical move to expiry (1 = one standard deviation) */
   reach: number;
   reasons: string[];
+  /** the case for the trade in plain words, written when it was picked */
+  thesis?: string;
+  /** stock price at which the case is wrong and the trade should be closed */
+  invalidation?: number;
+  invalidationReason?: string;
+  /** the full analysis score at pick time, -100..+100 */
+  analysisScore?: number;
+  risks?: string[];
+  /** who made the final choice: an AI model label, or "rules" */
+  decidedBy?: string;
+}
+
+/** The reason a position was opened, kept so it is judged against the same case later. */
+export interface Thesis {
+  occ: string;
+  symbol: string;
+  direction: "bullish" | "bearish";
+  text: string;
+  invalidation: number;
+  invalidationReason: string;
+  scoreAtEntry: number;
+  at: number;
+  source: "pick" | "auto";
 }
 
 export interface Briefing {
@@ -367,6 +387,8 @@ export interface Briefing {
   notes: string[];
   /** the plan says no new trades right now (loss limit hit or no free slots) */
   paused?: boolean;
+  /** why the other candidates were passed over, or why there is no trade */
+  passed?: string;
 }
 
 export type Checkpoint = "h1" | "close" | "d1" | "expiry";

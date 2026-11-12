@@ -169,9 +169,16 @@ async function runCheck() {
     const [hh, mm] = time.split(/[: ]/).map(Number);
     if (settings.picks && sess === "Market open" && hh * 60 + mm >= 9 * 60 + 45) {
       const last = await latestBriefing();
+      const minutes = hh * 60 + mm;
       if (last?.day !== today) {
         const { briefing, title, body } = await runBriefing();
-        out.push({ kind: "picks", tone: briefing.picks.length ? "up" : "neutral", title, body, href: "/picks" });
+        out.push({ kind: "picks", tone: briefing.picks.length ? "up" : "neutral", title, body, href: "/plan" });
+      } else if (Date.now() - last.at > 30 * 60_000 && minutes < 15 * 60 + 30) {
+        // re-rank every 30 minutes as flow, momentum and news move; alert only when the list changes
+        const before = last.picks.map((p) => p.symbol).join(",");
+        const { briefing, title, body } = await runBriefing();
+        if (briefing.picks.map((p) => p.symbol).join(",") !== before)
+          out.push({ kind: "picks", tone: "neutral", title: title.replace("Strike picks", "Picks updated"), body, href: "/plan" });
       }
     }
 

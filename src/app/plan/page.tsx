@@ -1,16 +1,13 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
-import Link from "next/link";
 import { useState } from "react";
-import { TradeInstruction } from "@/components/TradeInstruction";
-import { Button, Meter, Panel, PanelHeader, Stat, StatStrip, ticketHref } from "@/components/ui";
+import { PicksSection } from "@/components/PicksSection";
+import { Button, Panel, Stat, StatStrip } from "@/components/ui";
 import { dateLabel, pct, signedUsd, usd } from "@/lib/format";
-import type { Horizon, PlanSettings, PlanView } from "@/lib/types";
+import { STYLES, styleOf } from "@/lib/styles";
+import type { PlanSettings, PlanStyle, PlanView } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
-
-const HORIZON: Record<Horizon, string> = { eod: "Today", week: "This week", month: "1 month", quarter: "2 months" };
 
 export default function PlanPage() {
   const { data, error, reload } = usePoll<PlanView>("/api/plan", 15_000);
@@ -29,7 +26,7 @@ export default function PlanPage() {
         <div>
           <h1 className="text-[18px] font-semibold tracking-tight">Daily plan</h1>
           <p className="mt-0.5 text-muted">
-            Where the account stands against the goal (live brokerage value when linked), how much to risk next, and today&apos;s strongest setups sized to it.
+            Where you stand against the goal, how hard to push, and today&apos;s picks sized to your style. Picks re-rank every 30 minutes and each one shows a live call.
           </p>
         </div>
         <Button onClick={() => setEditing((v) => !v)}>{editing ? "Close settings" : "Edit goal and limits"}</Button>
@@ -90,66 +87,16 @@ export default function PlanPage() {
         <Stat label="Position slots" value={`${data.openCount} / ${p.maxOpen}`} sub={`${Math.max(0, p.maxOpen - data.openCount)} free`} />
       </StatStrip>
 
+      <StylePicker value={p} onSaved={reload} />
+
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
-        <Panel className="min-w-0">
-          <PanelHeader title="Today's setups" right={<span className="text-[11px] text-faint">strongest one-sided flow, sized to the risk budget</span>} />
-          {!data.ideas.length ? (
-            <div className="px-4 py-10 text-center text-muted">
-              {data.budget <= 0
-                ? "No new trades today: the plan's rules have paused new positions."
-                : "No setup is strong enough and affordable at today's risk budget right now. This refreshes every 15 seconds."}
-            </div>
-          ) : (
-            <ul>
-              {data.ideas.map((i) => {
-                const up = i.direction === "bullish";
-                const Arrow = up ? ArrowUpRight : ArrowDownRight;
-                return (
-                  <li key={i.symbol} className={clsx("border-b border-l-2 border-b-line/70 px-4 py-3 last:border-b-0", up ? "border-l-up" : "border-l-down")}>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <div className="w-56">
-                        <div className="flex items-center gap-2">
-                          <Link href={`/s/${i.symbol}`} className="text-[14px] font-semibold hover:underline">
-                            {i.symbol}
-                          </Link>
-                          <span className={clsx("flex items-center gap-0.5 text-[12px] font-medium", up ? "text-up" : "text-down")}>
-                            <Arrow size={13} strokeWidth={2} />
-                            {up ? "Bullish" : "Bearish"}
-                          </span>
-                          <span className="text-[12px] text-muted">{HORIZON[i.horizon]}</span>
-                        </div>
-
-                      </div>
-                      <div className="num flex flex-1 flex-wrap gap-x-5 text-[12px] text-muted">
-                        <span>
-                          <span className="text-fg">{usd(i.contract.ask)}</span> ask
-                        </span>
-                        <span>
-                          <span className="text-fg">{usd(i.cost, 0)}</span> total
-                        </span>
-                        <span>
-                          <span className="text-fg">{usd(i.contract.breakeven)}</span> break-even
-                        </span>
-                        <span>
-                          <span className="text-fg">{pct(i.contract.pop, 0)}</span> implied odds
-                        </span>
-                      </div>
-                      <Meter value={i.conviction} tone={up ? "up" : "down"} />
-                      <Link href={ticketHref(i.contract)}>
-                        <Button>Open ticket</Button>
-                      </Link>
-                    </div>
-                    <TradeInstruction c={i.contract} horizon={i.horizon} budget={data.budget > 0 ? data.budget : undefined} compact className="mt-2 border-l-2 border-line-strong pl-3" />
-                    <p className="mt-1.5 text-[12px] text-muted">{i.why}</p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Panel>
-
+        <div className="min-w-0">
+          <PicksSection paused={data.halted || data.budget <= 0} />
+        </div>
         <Panel>
-          <PanelHeader title="Today's rules" />
+          <div className="flex h-10 items-center border-b border-line px-4">
+            <h2 className="cap !text-muted">Today&apos;s rules</h2>
+          </div>
           <ul className="space-y-2 px-4 py-3 text-[12.5px] leading-snug">
             {data.notes.map((n) => (
               <li key={n} className="flex gap-2">
@@ -160,8 +107,9 @@ export default function PlanPage() {
           </ul>
           <div className="border-t border-line px-4 py-3 text-[11.5px] leading-relaxed text-faint">
             Base risk is {pct(p.riskPerTrade, 0)} of the account per trade. It halves after a losing day, halves again after three
-            in a row, and goes to zero once today&apos;s loss reaches {pct(p.dailyLossLimit, 0)} or every slot is used. Setups come
-            from the Signals rail (conviction 60 and up), one per symbol, skipping symbols you already hold.
+            in a row, and goes to zero once today&apos;s loss reaches {pct(p.dailyLossLimit, 0)} or every slot is used. Picks come
+            from the day&apos;s one-sided option flow, follow your style ({styleOf(p.style).blurb}), and re-rank every 30
+            minutes while the market is open.
           </div>
         </Panel>
       </div>
@@ -189,6 +137,7 @@ function Settings({ value, onSaved }: { value: PlanSettings; onSaved: () => void
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...f,
+        style: value.style,
         riskPerTrade: Number(f.riskPerTrade) / 100,
         dailyLossLimit: Number(f.dailyLossLimit) / 100,
       }),
@@ -233,5 +182,49 @@ function Settings({ value, onSaved }: { value: PlanSettings; onSaved: () => void
         </div>
       </form>
     </Panel>
+  );
+}
+
+/** Steady / Aggressive / All-in. Choosing one rewrites risk per trade, the loss limit and slots, and re-ranks the picks. */
+function StylePicker({ value, onSaved }: { value: PlanSettings; onSaved: () => void }) {
+  const [busy, setBusy] = useState<PlanStyle | null>(null);
+  const current = value.style ?? "steady";
+
+  async function choose(style: PlanStyle) {
+    if (style === current) return;
+    setBusy(style);
+    const preset = STYLES[style];
+    await fetch("/api/plan", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...value, style, riskPerTrade: preset.riskPerTrade, dailyLossLimit: preset.dailyLossLimit, maxOpen: preset.maxOpen }),
+    });
+    await fetch("/api/picks?action=run", { method: "POST" });
+    setBusy(null);
+    onSaved();
+  }
+
+  return (
+    <div className="grid gap-px border border-line bg-line sm:grid-cols-2 xl:grid-cols-4">
+      {(Object.keys(STYLES) as PlanStyle[]).map((k) => {
+        const st = STYLES[k];
+        const on = k === current;
+        return (
+          <button
+            key={k}
+            onClick={() => choose(k)}
+            disabled={!!busy}
+            className={clsx("bg-panel px-4 py-3 text-left transition-colors", on ? "outline outline-1 -outline-offset-1 outline-fg" : "hover:bg-raised")}
+          >
+            <div className="flex items-center justify-between">
+              <span className={clsx("text-[14px] font-semibold", k === "max" ? "text-down" : k === "aggressive" ? "text-warn" : "text-fg")}>{st.label}</span>
+              <span className="cap">{busy === k ? "Re-ranking…" : on ? "Current" : "Switch"}</span>
+            </div>
+            <div className="mt-0.5 text-[12px] text-muted">{st.blurb}</div>
+            <div className="num mt-0.5 text-[11.5px] text-faint">daily loss limit {Math.round(st.dailyLossLimit * 100)}%</div>
+          </button>
+        );
+      })}
+    </div>
   );
 }

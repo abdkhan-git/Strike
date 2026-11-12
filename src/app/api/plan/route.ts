@@ -25,11 +25,12 @@ export async function PUT(req: Request) {
     riskPerTrade: n(b.riskPerTrade),
     dailyLossLimit: n(b.dailyLossLimit),
     maxOpen: Math.floor(n(b.maxOpen)),
+    style: ["focused", "aggressive", "max"].includes(b.style) ? b.style : "steady",
   };
   if (!(plan.startCapital > 0) || !(plan.goal > 0) || !plan.startDate || !plan.targetDate || plan.targetDate <= plan.startDate)
     return Response.json({ error: "Enter a starting amount, a goal and a target date after the start date" }, { status: 400 });
-  if (!(plan.riskPerTrade > 0 && plan.riskPerTrade <= 0.5) || !(plan.dailyLossLimit > 0 && plan.dailyLossLimit <= 1) || !(plan.maxOpen >= 1))
-    return Response.json({ error: "Risk per trade must be 0–50%, the daily limit 0–100%, and at least one position slot" }, { status: 400 });
+  if (!(plan.riskPerTrade > 0 && plan.riskPerTrade <= 0.9) || !(plan.dailyLossLimit > 0 && plan.dailyLossLimit <= 1) || !(plan.maxOpen >= 1))
+    return Response.json({ error: "Risk per trade must be 0–90%, the daily limit 0–100%, and at least one position slot" }, { status: 400 });
   await writePlan(plan);
   return Response.json(plan);
 }

@@ -15,7 +15,8 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "^3.10.1",
-    "snaptrade-typescript-sdk": "^13.2.5"
+    "snaptrade-typescript-sdk": "^13.2.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

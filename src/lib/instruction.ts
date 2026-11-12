@@ -9,8 +9,9 @@ import type { Horizon, OptType } from "./types";
  * Exit rules by how far out the contract expires:
  *   same day   target +40%  stop -30%  sell by 3:30 pm ET the same day
  *   ≤ 8 days   target +75%  stop -50%  hold up to 2 trading days, never into the last afternoon
- *   ≤ 45 days  target +100% stop -50%  hold up to 10 trading days, out 2 weeks before expiry
- *   longer     target +100% stop -50%  hold up to 15 trading days, out a month before expiry
+ *   ≤ 45 days  target +100% stop -50%  hold up to 10 trading days, out a week before expiry
+ *   longer     target +100% stop -50%  hold up to 15 trading days, out 3 weeks before expiry
+ * The sell-by is never earlier than the next trading day for anything but same-day contracts.
  * Short-dated options lose value fastest, so they get smaller targets and shorter holds.
  */
 
@@ -29,8 +30,8 @@ export interface ExitRules {
 const RULES: Record<Horizon, ExitRules> = {
   eod: { target: 0.4, stop: 0.7, holdDays: 0, outBefore: 0, sellAt: 15 * 60 + 30 },
   week: { target: 0.75, stop: 0.5, holdDays: 2, outBefore: 0, sellAt: 15 * 60 },
-  month: { target: 1, stop: 0.5, holdDays: 10, outBefore: 14, sellAt: 15 * 60 + 30 },
-  quarter: { target: 1, stop: 0.5, holdDays: 15, outBefore: 30, sellAt: 15 * 60 + 30 },
+  month: { target: 1, stop: 0.5, holdDays: 10, outBefore: 7, sellAt: 15 * 60 + 30 },
+  quarter: { target: 1, stop: 0.5, holdDays: 15, outBefore: 21, sellAt: 15 * 60 + 30 },
 };
 
 export const horizonOfDte = (dte: number): Horizon => (dte < 1 ? "eod" : dte <= 8 ? "week" : dte <= 45 ? "month" : "quarter");
@@ -98,7 +99,9 @@ export function sellBy(h: Horizon, entryDay: string, expiration: string) {
   // short-dated: never hold into the expiration afternoon; leave by 2 pm on expiry day at the latest
   let minutes = r.sellAt;
   if (day >= latest) {
-    day = latest < entryDay ? entryDay : latest;
+    // never earlier than the next trading day: a multi-day contract needs at least a session to work
+    const floor = h === "eod" ? entryDay : addWeekdays(entryDay, 1);
+    day = latest < floor ? (floor <= expiration ? floor : expiration) : latest;
     if (h === "week" && day === expiration) minutes = 14 * 60;
   }
   return { at: etTime(day, minutes), day, text: `${dayLabel(day)}, ${clock(minutes)} ET` };

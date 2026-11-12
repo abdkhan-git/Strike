@@ -328,6 +328,22 @@ function PositionRow({
               <span className="cap mr-2 !text-muted">Do this now</span>
               {v.doNow}
             </p>
+            {v.thesis && (
+              <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
+                <span className="cap mr-2">{v.thesis.source === "pick" ? "The case" : "Tracking"}</span>
+                {v.thesis.text}{" "}
+                <span className="text-fg">
+                  Holds while {t.underlying} stays {t.type === "call" ? "above" : "below"} {usd(v.thesis.invalidation)}.
+                </span>
+                {v.analysis && (
+                  <span className="num ml-2 text-faint">
+                    analysis {v.analysis.score > 0 ? "+" : ""}
+                    {v.analysis.score} now, {v.analysis.atEntry > 0 ? "+" : ""}
+                    {v.analysis.atEntry} at entry
+                  </span>
+                )}
+              </p>
+            )}
             <ul className="mt-2 grid gap-x-6 gap-y-0.5 text-[12px] leading-snug text-muted md:grid-cols-2">
               {v.reasons.map((r) => (
                 <li key={r} className="flex gap-2">

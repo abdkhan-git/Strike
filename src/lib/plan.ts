@@ -1,9 +1,8 @@
 import { brokerView } from "./broker";
 import { pct, usd } from "./format";
-import { signals } from "./market";
 import { tradeViews } from "./positions";
 import { readPlan } from "./store";
-import type { PlanIdea, PlanSettings, PlanView, TradeView } from "./types";
+import type { PlanSettings, PlanView, TradeView } from "./types";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -20,6 +19,7 @@ export function defaultPlan(startCapital = 10_000): PlanSettings {
     riskPerTrade: 0.05,
     dailyLossLimit: 0.1,
     maxOpen: 4,
+    style: "steady",
   };
 }
 
@@ -102,30 +102,6 @@ export async function buildPlan(settings: PlanSettings, trades: TradeView[], bro
 
   const budget = halted || !slots ? 0 : Math.max(0, equity * settings.riskPerTrade * factor);
 
-  const ideas: PlanIdea[] = [];
-  if (budget > 0) {
-    const held = new Set(open.map((t) => t.underlying));
-    const seen = new Set<string>();
-    for (const s of (await signals()).signals) {
-      if (s.conviction < 60 || !s.lead || seen.has(s.symbol) || held.has(s.symbol)) continue;
-      const price = s.lead.ask || s.lead.mid;
-      const qty = Math.floor(budget / (price * 100));
-      if (qty < 1) continue;
-      seen.add(s.symbol);
-      ideas.push({
-        symbol: s.symbol,
-        direction: s.direction,
-        horizon: s.horizon,
-        conviction: s.conviction,
-        contract: s.lead,
-        qty,
-        cost: qty * price * 100,
-        why: s.reasons[0],
-      });
-      if (ideas.length === Math.min(6, slots + 2)) break;
-    }
-  }
-
   return {
     settings,
     equity,
@@ -141,7 +117,6 @@ export async function buildPlan(settings: PlanSettings, trades: TradeView[], bro
     budget,
     notes,
     halted,
-    ideas,
   };
 }
 
