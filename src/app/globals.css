@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #08080a;
+  --color-panel: #0d0d0f;
+  --color-raised: #151518;
+  --color-line: #1c1c20;
+  --color-line-strong: #2b2b31;
+  --color-fg: #ededf0;
+  --color-muted: #8b8b95;
+  --color-faint: #55555e;
+  --color-up: #3ecf8e;
+  --color-down: #f0616d;
+  --color-warn: #e5a83b;
+  --color-accent: #6ea8fe;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  font-feature-settings: "cv11", "ss01", "tnum";
+  letter-spacing: -0.006em;
+}
+
+::selection {
+  background: rgb(110 168 254 / 0.3);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+/* figures: monospaced so columns line up and live values do not shift width */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* small uppercase label used for table heads and field captions */
+.cap {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--color-line-strong);
+}
+input[type="range"]::-moz-range-track {
+  height: 2px;
+  background: var(--color-line-strong);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 6px;
+  height: 16px;
+  margin-top: -7px;
+  background: var(--color-fg);
+  border: 0;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 6px;
+  height: 16px;
+  background: var(--color-fg);
+  border: 0;
+  border-radius: 0;
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.rise {
+  animation: rise 0.18s ease-out;
+}
+
+@keyframes pulse-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* live figure moved: brief colour wash that fades back to the normal text colour */
+@keyframes tick-up {
+  from {
+    color: var(--color-up);
+    background: rgb(62 207 142 / 0.14);
+  }
+}
+@keyframes tick-down {
+  from {
+    color: var(--color-down);
+    background: rgb(240 97 109 / 0.14);
+  }
+}
+.tick-up {
+  animation: tick-up 0.9s ease-out;
+}
+.tick-down {
+  animation: tick-down 0.9s ease-out;
+}
+
+@keyframes tape {
+  to {
+    transform: translateX(-50%);
+  }
+}
+.tape {
+  animation: tape 90s linear infinite;
+}
+.tape:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick-up,
+  .tick-down,
+  .tape,
+  .rise,
+  .pulse-dot {
+    animation: none;
+  }
+}
