@@ -33,7 +33,7 @@ src/
     page.tsx              Scanner: symbols, unusual contracts, signals rail
     s/[symbol]/page.tsx   Price chart, 15-minute read, news, flow and full chain for one ticker
     calculator/page.tsx   Order ticket: live chain, scenario sliders, P/L, log purchase
-    positions/page.tsx    Open positions with live verdicts, brokerage panel, history, daily P/L
+    positions/page.tsx    Open positions with direct calls, call summary, brokerage panel, what's-working breakdown, history
     plan/page.tsx         Goal pace, risk budget for the next trade, sized setups
     api/                  scan, signals, symbol, chart, news, trades, plan, broker, alerts, status
   instrumentation.ts      Starts the alert watcher when the server boots
@@ -48,7 +48,7 @@ src/
     plan.ts               Goal pace, risk budget and sized setups
     alerts.ts             Background watcher: verdict, signal and loss-limit alerts; ntfy push
     session.ts            Market session from the clock
-    broker.ts             SnapTrade: balances, option positions, import to the log
+    broker.ts             SnapTrade: balances, option positions, and the trade log rebuilt from executed orders
     reason.ts             One-line explanation of why a contract stands out (rules, no model)
     cache.ts              TTL cache with shared in-flight loads and stale-while-refresh
     news.ts               Company headlines (Finnhub)
@@ -68,7 +68,8 @@ src/
 - **Implied move:** at-the-money straddle price ÷ stock price.
 - **Signals:** one expiration per window (today, this week, ~1 month, ~2 months). Conviction (0–100) is 45% how lopsided the call/put premium split is, 25% dominant-side volume vs open interest, 15% dollar size, 15% share of that premium that is out of the money. Shown from 50 up, "Strong" from 70. Live data refreshes every 3 minutes to stay inside Tradier's rate limit.
 - **15-minute read:** from one-minute bars: the 5- and 15-minute returns and the distance from VWAP, each scaled by current one-minute volatility, plus a small RSI pull toward the middle. It leans one way past ±0.2 of the blended score. The range is one standard deviation of a 15-minute move. Direction over a few minutes is close to a coin flip; the range is the dependable part.
-- **Position verdicts:** fixed rules checked in order. Take profit at +100%, or at +50% when momentum turns or 3 days remain. Sell when expiring out of the money, or down 50% with 5 days or less or under 15% implied odds. Trim before earnings when up 20%+, or when a day of decay exceeds 8% of the position and momentum is not helping. Otherwise hold or wait. Target and stop are +100% and −50% of the entry premium.
+- **Position calls:** every open position gets a plain call ("Good position, sell now", "Good position, sell half now", "Good position, keep it", "Losing, but worth keeping open", "Losing and weak, consider cutting", "Bad position, cut it"), refreshed every 5 seconds. Rules, in order: sell half once the premium doubles; sell when it expires within a day out of the money (a winner to lock the gain, a loser to salvage what is left); sell at +50% when momentum turns or 3 days remain; cut at −50% with 5 days or less or under 15% odds of reaching break-even; take some off before earnings when up 20%+, or when a day of decay exceeds 8% of the position without momentum. Otherwise winners are kept, and losers are kept only with at least 30% odds of reaching break-even or momentum turning their way. "Odds to double" is twice the implied probability of finishing past the level where the premium doubles (the chance of touching it before expiry).
+- **Brokerage sync:** once a minute (and on "Sync now") the brokerage part of the log is rebuilt from the last year of executed option orders: buys open lots, sells close them first-in-first-out at the real fill price. Trades logged by hand are kept unless the same contract appears in the brokerage fills.
 - **Expired positions:** closed automatically at intrinsic value, using the stock's close on expiration day.
 - **Daily plan:** equity is the live brokerage value when linked, otherwise start + realized + open P/L. Risk per trade is a share of equity, halved after a losing day, halved again after three in a row, and zero once the daily loss limit is hit or every slot is used.
 - **Alerts:** a watcher started from `src/instrumentation.ts` runs once a minute from 4:00 to 20:00 ET on weekdays. It alerts when an open position's verdict changes to Take profit, Sell or Trim, when a signal at or above the chosen conviction (default 80) appears for the first time that day, and once when the daily loss limit is hit. The first pass after a restart only records the current state. Alerts are kept in `data/alerts.json` (last 200), shown under the bell, sent as desktop notifications while a Strike tab is open, and pushed to the phone through ntfy when `NTFY_TOPIC` is set.

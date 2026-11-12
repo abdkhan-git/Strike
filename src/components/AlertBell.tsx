@@ -127,7 +127,7 @@ export function AlertBell() {
           </ul>
 
           <div className="space-y-2.5 border-t border-line px-4 py-3 text-[12.5px]">
-            <Toggle label="Position verdicts (Take profit, Sell, Trim)" on={data.settings.verdicts} set={(v) => save({ verdicts: v })} />
+            <Toggle label="Position calls that need action (sell, trim, cut)" on={data.settings.verdicts} set={(v) => save({ verdicts: v })} />
             <Toggle label="Daily loss limit reached" on={data.settings.risk} set={(v) => save({ risk: v })} />
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted">New signals at conviction</span>

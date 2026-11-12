@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { Link2, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Tick } from "@/components/Tick";
 import { Button, Panel, PanelHeader, Stat, StatStrip, Tabs, ticketHref } from "@/components/ui";
@@ -16,6 +16,13 @@ const day = (ms: number) => new Date(ms).toLocaleDateString("en-CA");
 const tick = { fill: "var(--color-muted)", fontSize: 11, fontFamily: "var(--font-mono)" };
 const tip = { background: "var(--color-raised)", border: "1px solid var(--color-line-strong)", borderRadius: 0, fontSize: 12 };
 
+const CALL_TEXT: Record<Verdict["tone"], string> = {
+  up: "text-up",
+  down: "text-down",
+  warn: "text-warn",
+  neutral: "text-fg",
+};
+
 const ACTION_STYLE: Record<Verdict["tone"], string> = {
   up: "border-up text-up",
   down: "border-down text-down",
@@ -24,7 +31,7 @@ const ACTION_STYLE: Record<Verdict["tone"], string> = {
 };
 
 export default function PositionsPage() {
-  const { data, error, reload } = usePoll<TradeView[]>("/api/trades", 5000);
+  const { data, error, reload, updatedAt } = usePoll<TradeView[]>("/api/trades", 5000);
   const [closing, setClosing] = useState<{ id: string; price: string } | null>(null);
   const [view, setView] = useState<"open" | "history">("open");
 
@@ -85,10 +92,13 @@ export default function PositionsPage() {
         <div>
           <h1 className="text-[18px] font-semibold tracking-tight">Positions</h1>
           <p className="mt-0.5 text-muted">
-            Every logged contract, marked at the live mid price, with a verdict that updates every few seconds.
+            Every position, marked at the live mid price, with a direct call on what to do with it.
           </p>
         </div>
+        <LiveClock at={updatedAt} />
       </div>
+
+      {s.open.length > 0 && <CallSummary open={s.open} />}
 
       <StatStrip>
         <Stat label="Open value" value={usd(s.openValue)} sub={`${s.open.length} position${s.open.length === 1 ? "" : "s"} · ${usd(s.openCost)} at cost`} />
@@ -199,7 +209,8 @@ export default function PositionsPage() {
         </Panel>
 
         <div className="space-y-4">
-          <BrokerPanel onImported={reload} />
+          <BrokerPanel onSynced={reload} />
+          {s.closed.length >= 5 && <Breakdown closed={s.closed} />}
           <Panel>
             <PanelHeader title="Realized P/L by day" />
             <div className="h-44 px-2 pb-2 pt-3">
@@ -306,13 +317,14 @@ function PositionRow({
       <div className="min-w-0">
         {v ? (
           <div className={clsx("border-l-2 pl-4", ACTION_STYLE[v.tone].split(" ")[0])}>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className={clsx("cap border px-1.5 py-0.5 !text-[11px]", ACTION_STYLE[v.tone])}>{v.action}</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className={clsx("text-[17px] font-semibold tracking-tight", CALL_TEXT[v.tone])}>{v.call}</span>
               <span className="num text-[11.5px] text-muted">
-                {Math.max(0, Math.round(v.dte))}d left · {pct(v.odds, 0)} implied odds · decay {usd(v.decayPerDay)}/day
+                {Math.max(0, Math.round(v.dte))}d left · {pct(v.odds, 0)} past break-even · {pct(v.doubleOdds, 0)} to double · decay{" "}
+                {usd(v.decayPerDay, 0)}/day
               </span>
             </div>
-            <p className="mt-2 text-[13.5px] leading-relaxed">{v.headline}</p>
+            <p className="mt-1.5 text-[13.5px] leading-relaxed">{v.headline}</p>
             <ul className="mt-2 grid gap-x-6 gap-y-0.5 text-[12px] leading-snug text-muted md:grid-cols-2">
               {v.reasons.map((r) => (
                 <li key={r} className="flex gap-2">
@@ -369,12 +381,12 @@ function PositionRow({
   );
 }
 
-function BrokerPanel({ onImported }: { onImported: () => void }) {
+function BrokerPanel({ onSynced }: { onSynced: () => void }) {
   const { data, reload } = usePoll<BrokerView>("/api/broker", 60_000);
-  const [busy, setBusy] = useState<"" | "import" | "connect">("");
+  const [busy, setBusy] = useState<"" | "sync" | "connect">("");
   const [msg, setMsg] = useState("");
 
-  async function act(action: "import" | "connect") {
+  async function act(action: "sync" | "connect") {
     setBusy(action);
     setMsg("");
     const res = await fetch(`/api/broker?action=${action}`, { method: "POST" });
@@ -383,8 +395,8 @@ function BrokerPanel({ onImported }: { onImported: () => void }) {
     if (!res.ok) return setMsg(json.error ?? "Request failed");
     if (action === "connect") window.open(json.url, "_blank", "noopener");
     else {
-      setMsg(json.added ? `Added ${json.added} position${json.added === 1 ? "" : "s"} to the log.` : "Everything is already in the log.");
-      onImported();
+      setMsg(`Synced ${json.trades} trades from your brokerage fills.`);
+      onSynced();
       reload();
     }
   }
@@ -440,16 +452,153 @@ function BrokerPanel({ onImported }: { onImported: () => void }) {
               <span className="text-[12.5px] text-muted">
                 {data.options.length} option position{data.options.length === 1 ? "" : "s"} at the broker
               </span>
-              <Button onClick={() => act("import")} disabled={!!busy || !data.options.length}>
-                <RefreshCw size={12} className={busy === "import" ? "animate-spin" : undefined} /> Import to log
+              <Button onClick={() => act("sync")} disabled={!!busy}>
+                <RefreshCw size={12} className={busy === "sync" ? "animate-spin" : undefined} /> Sync now
               </Button>
             </div>
             {msg && <p className="text-[12px] text-muted">{msg}</p>}
             {data.error && <p className="text-[12px] text-down">{data.error}</p>}
-            <p className="text-[11px] text-faint">Read-only through SnapTrade, refreshed every minute. Strike never places orders.</p>
+            <p className="text-[11px] leading-snug text-faint">
+              Your buys and sells sync automatically every minute and rebuild the log with real fill prices. Read-only through
+              SnapTrade; Strike never places orders.
+            </p>
           </div>
         </>
       )}
+    </Panel>
+  );
+}
+
+/** "Live · updated 3s ago", ticking every second, so it is obvious the calls are current. */
+function LiveClock({ at }: { at?: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const secs = at ? Math.max(0, Math.round((now - at) / 1000)) : undefined;
+  const stale = secs === undefined || secs > 20;
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      <span className={clsx("size-1.5", stale ? "bg-warn" : "pulse-dot bg-up")} />
+      <span className={stale ? "text-warn" : "text-muted"}>
+        {secs === undefined ? "Connecting…" : stale ? `Last update ${secs}s ago` : `Live · updated ${secs}s ago · every 5s`}
+      </span>
+    </div>
+  );
+}
+
+/** One line per kind of call, with what acting on it means in dollars. */
+function CallSummary({ open }: { open: TradeView[] }) {
+  const groups = [
+    { key: "sell", label: "Sell now", tone: "text-up", match: (t: TradeView) => t.verdict?.move === "sell" && t.verdict.quality !== "bad" },
+    { key: "half", label: "Sell half now", tone: "text-up", match: (t: TradeView) => t.verdict?.move === "sell-half" },
+    { key: "trim", label: "Take some off", tone: "text-warn", match: (t: TradeView) => t.verdict?.move === "trim" },
+    { key: "cut", label: "Cut", tone: "text-down", match: (t: TradeView) => t.verdict?.move === "sell" && t.verdict.quality === "bad" },
+    { key: "keep", label: "Keep", tone: "text-fg", match: (t: TradeView) => t.verdict?.move === "keep" },
+  ]
+    .map((g) => {
+      const ts = open.filter(g.match);
+      return { ...g, ts, pnl: ts.reduce((s, t) => s + t.pnl, 0), value: ts.reduce((s, t) => s + (t.mark ?? 0) * 100 * t.qty, 0) };
+    })
+    .filter((g) => g.ts.length);
+
+  return (
+    <div
+      className="grid gap-px border border-line bg-line max-sm:!grid-cols-1"
+      style={{ gridTemplateColumns: `repeat(${groups.length}, minmax(0, 1fr))` }}
+    >
+      {groups.map((g) => (
+        <div key={g.key} className="bg-panel px-4 py-3">
+          <div className={clsx("text-[13.5px] font-semibold", g.tone)}>
+            {g.label} <span className="num font-normal text-muted">· {g.ts.length}</span>
+          </div>
+          <div className="mt-0.5 truncate text-[12px] text-muted">{g.ts.map((t) => `${t.underlying} ${contractLabel(t)}`).join(", ")}</div>
+          <div className="num mt-1 text-[12px]">
+            {g.key === "keep" ? "open P/L " : g.key === "cut" ? "salvages " : "locks in "}
+            <span className={g.key === "cut" ? "text-fg" : g.pnl >= 0 ? "text-up" : "text-down"}>
+              {g.key === "cut" ? usd(g.value, 0) : signedUsd(g.key === "half" ? g.pnl / 2 : g.pnl, 0)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const dteAtEntry = (t: TradeView) => Math.round((Date.parse(t.expiration + "T21:00:00Z") - t.entryAt) / 86_400_000);
+const heldMin = (t: TradeView) => ((t.exitAt ?? t.entryAt) - t.entryAt) / 60_000;
+const INDEX = new Set(["SPY", "QQQ", "IWM", "DIA", "SPX", "XSP"]);
+
+/** Realized results split by how you trade, so you can see which habits make and lose money. */
+function Breakdown({ closed }: { closed: TradeView[] }) {
+  const sections: { title: string; rows: [string, (t: TradeView) => boolean][] }[] = [
+    {
+      title: "Time to expiry when bought",
+      rows: [
+        ["Same day (0DTE)", (t) => dteAtEntry(t) < 1],
+        ["1–7 days", (t) => dteAtEntry(t) >= 1 && dteAtEntry(t) <= 7],
+        ["8+ days", (t) => dteAtEntry(t) > 7],
+      ],
+    },
+    {
+      title: "How long you held",
+      rows: [
+        ["Under 15 min", (t) => heldMin(t) < 15],
+        ["15 min – 1 day", (t) => heldMin(t) >= 15 && heldMin(t) < 1440],
+        ["Over a day", (t) => heldMin(t) >= 1440],
+      ],
+    },
+    {
+      title: "What you traded",
+      rows: [
+        ["Index ETFs", (t) => INDEX.has(t.underlying)],
+        ["Single stocks", (t) => !INDEX.has(t.underlying)],
+        ["Calls", (t) => t.type === "call"],
+        ["Puts", (t) => t.type === "put"],
+      ],
+    },
+  ];
+  const stat = (f: (t: TradeView) => boolean) => {
+    const g = closed.filter(f);
+    return { n: g.length, pnl: g.reduce((s, t) => s + t.pnl, 0), win: g.length ? g.filter((t) => t.pnl > 0).length / g.length : 0 };
+  };
+  const all = sections.flatMap((s) => s.rows.map(([label, f]) => ({ label, ...stat(f) }))).filter((r) => r.n >= 5);
+  const best = all.length ? all.reduce((a, b) => (b.pnl / b.n > a.pnl / a.n ? b : a)) : undefined;
+  const worst = all.length ? all.reduce((a, b) => (b.pnl < a.pnl ? b : a)) : undefined;
+
+  return (
+    <Panel>
+      <PanelHeader title="What's working" right={<span className="text-[11px] text-faint">{closed.length} closed trades</span>} />
+      {worst && best && worst.pnl < 0 && (
+        <p className="border-b border-line px-4 py-3 text-[12.5px] leading-relaxed">
+          Biggest leak: <span className="text-down">{worst.label.toLowerCase()}</span> ({worst.n} trades, {signedUsd(worst.pnl, 0)},{" "}
+          {pct(worst.win, 0)} win rate).{" "}
+          {best.pnl > worst.pnl && (
+            <>
+              Least damaging: <span className={best.pnl >= 0 ? "text-up" : "text-fg"}>{best.label.toLowerCase()}</span> (
+              {signedUsd(best.pnl / best.n, 0)} per trade).
+            </>
+          )}
+        </p>
+      )}
+      {sections.map((sec) => (
+        <div key={sec.title} className="border-b border-line px-4 py-2.5 last:border-0">
+          <div className="cap mb-1">{sec.title}</div>
+          {sec.rows.map(([label, f]) => {
+            const r = stat(f);
+            if (!r.n) return null;
+            return (
+              <div key={label} className="num grid grid-cols-[1fr_44px_52px_80px] items-center gap-2 py-0.5 text-[12px]">
+                <span className="font-sans text-muted">{label}</span>
+                <span className="text-right text-faint">{r.n}</span>
+                <span className="text-right text-muted">{pct(r.win, 0)}</span>
+                <span className={clsx("text-right", tone(r.pnl))}>{signedUsd(r.pnl, 0)}</span>
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </Panel>
   );
 }

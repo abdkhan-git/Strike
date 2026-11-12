@@ -162,6 +162,8 @@ export interface Trade {
   exitPrice?: number;
   exitAt?: number;
   note?: string;
+  /** "broker": rebuilt from brokerage fills on every sync; anything else was logged by hand */
+  source?: "broker";
 }
 
 export interface TradeView extends Trade {
@@ -227,11 +229,18 @@ export interface ChartResult {
 /** What to do with an open position right now, from fixed rules over live data. */
 export interface Verdict {
   action: "Take profit" | "Sell" | "Trim" | "Hold" | "Wait";
+  /** the plain call, e.g. "Good position, sell now" or "Losing, but worth keeping open" */
+  call: string;
+  quality: "good" | "mixed" | "bad";
+  /** sell, reduce or hold: what to do with the order ticket */
+  move: "sell" | "sell-half" | "trim" | "keep";
   tone: "up" | "down" | "warn" | "neutral";
   headline: string;
   reasons: string[];
-  /** implied odds the option is worth more than the entry price at expiry */
+  /** implied odds the stock is past the position's break-even at expiry */
   odds: number;
+  /** implied odds the stock touches the level where the premium doubles, before expiry */
+  doubleOdds: number;
   /** dollars of time value the position loses per day */
   decayPerDay: number;
   dte: number;

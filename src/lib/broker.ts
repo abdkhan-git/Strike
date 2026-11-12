@@ -100,34 +100,138 @@ export async function brokerView(): Promise<BrokerView> {
 /** OCC symbol without the padding spaces brokers add, e.g. "NVDA261113C00175000". */
 export const occOf = (ticker: string) => ticker.replace(/\s+/g, "");
 
-/**
- * Logs every brokerage option position that is not already open in the trade log, at the
- * broker's average cost. Returns how many were added.
- */
-export async function importPositions(): Promise<number> {
-  const view = await brokerView();
-  if (view.error) throw new Error(view.error);
-  const trades = await readTrades();
-  const open = new Set(trades.filter((t) => t.status === "open").map((t) => t.occ));
-  const added: Trade[] = [];
-  for (const o of view.options) {
-    const occ = occOf(o.ticker);
-    if (open.has(occ) || o.qty <= 0 || !o.avgPrice) continue;
-    open.add(occ);
-    added.push({
-      id: crypto.randomUUID(),
-      occ,
-      underlying: o.underlying,
-      type: o.type,
-      strike: o.strike,
-      expiration: o.expiration,
-      qty: o.qty,
-      entryPrice: o.avgPrice,
-      entryAt: Date.now(),
-      status: "open",
-      note: "Imported from brokerage",
-    });
+type Fill = {
+  id: string;
+  occ: string;
+  underlying: string;
+  type: "call" | "put";
+  strike: number;
+  expiration: string;
+  side: "buy" | "sell";
+  qty: number;
+  price: number;
+  at: number;
+};
+
+/** Executed option orders from every linked account, oldest first. */
+async function fills(api: NonNullable<ReturnType<typeof client>>): Promise<Fill[]> {
+  const accounts = (await api.accountInformation.listAllUserAccounts()).data.results as unknown as Rec[];
+  const out: Fill[] = [];
+  for (const a of accounts) {
+    const orders = (await api.accountInformation.getUserAccountOrders({ accountId: String(a.id), state: "executed", days: 365 }))
+      .data as unknown as Rec[];
+    for (const o of orders) {
+      const sym = o.option_symbol as Rec | undefined;
+      const qty = num(o.filled_quantity);
+      const price = num(o.execution_price);
+      const action = String(o.action ?? "");
+      if (!sym || !qty || price === undefined || !/^(BUY|SELL)/.test(action)) continue;
+      const ticker = String(sym.ticker);
+      out.push({
+        id: String(o.brokerage_order_id),
+        occ: occOf(ticker),
+        underlying: String((sym.underlying_symbol as Rec | undefined)?.symbol ?? ticker.split(/\s/)[0]),
+        type: String(sym.option_type).toLowerCase() === "put" ? "put" : "call",
+        strike: Number(sym.strike_price),
+        expiration: String(sym.expiration_date).slice(0, 10),
+        side: action.startsWith("BUY") ? "buy" : "sell",
+        qty,
+        price,
+        at: Date.parse(String(o.time_executed ?? o.time_updated ?? o.time_placed)),
+      });
+    }
   }
-  if (added.length) await writeTrades([...trades, ...added]);
-  return added.length;
+  return out.sort((x, y) => x.at - y.at);
 }
+
+/**
+ * Rebuilds the brokerage part of the trade log from executed orders: buys open lots,
+ * sells close them first-in-first-out at the real fill price. Lots still open after the
+ * last order stay open; expired ones are settled later at intrinsic value and that
+ * settlement is kept across syncs.
+ */
+function rebuild(all: Fill[], previous: Trade[]): Trade[] {
+  const prior = new Map(previous.map((t) => [t.id, t]));
+  const lots = new Map<string, { fill: Fill; left: number }[]>();
+  const out: Trade[] = [];
+  const base = (f: Fill) => ({
+    occ: f.occ,
+    underlying: f.underlying,
+    type: f.type,
+    strike: f.strike,
+    expiration: f.expiration,
+    source: "broker" as const,
+  });
+
+  for (const f of all) {
+    const open = lots.get(f.occ) ?? [];
+    lots.set(f.occ, open);
+    if (f.side === "buy") {
+      open.push({ fill: f, left: f.qty });
+      continue;
+    }
+    let toClose = f.qty;
+    while (toClose > 0 && open.length) {
+      const lot = open[0];
+      const n = Math.min(lot.left, toClose);
+      out.push({
+        ...base(lot.fill),
+        id: `bk:${lot.fill.id}:${f.id}`,
+        qty: n,
+        entryPrice: lot.fill.price,
+        entryAt: lot.fill.at,
+        status: "closed",
+        exitPrice: f.price,
+        exitAt: f.at,
+      });
+      lot.left -= n;
+      toClose -= n;
+      if (lot.left <= 0) open.shift();
+    }
+    // a sell with no buy left in the history window has nothing to match; it is skipped
+  }
+
+  for (const open of lots.values())
+    for (const lot of open) {
+      const id = `bk:${lot.fill.id}`;
+      const was = prior.get(id);
+      // keep an expiry settlement made on an earlier pass
+      if (was?.status === "closed") out.push({ ...was, ...base(lot.fill), qty: lot.left });
+      else out.push({ ...base(lot.fill), id, qty: lot.left, entryPrice: lot.fill.price, entryAt: lot.fill.at, status: "open" });
+    }
+  return out;
+}
+
+/**
+ * Brings the trade log in line with the brokerage: brokerage trades are replaced by the
+ * rebuilt set, trades logged by hand are kept unless the same contract is already
+ * covered by brokerage fills. Runs at most once a minute unless forced.
+ * Returns how many brokerage trades the log now holds.
+ */
+export function syncFromBroker(force = false): Promise<number> {
+  const api = client();
+  if (!api) return Promise.resolve(0);
+  if (sync.pending) return sync.pending;
+  if (!force && sync.last && Date.now() - sync.at < 60_000) return sync.last;
+  sync.at = Date.now();
+  sync.pending = (async () => {
+    const all = await fills(api);
+    if (!all.length) return 0;
+    const trades = await readTrades();
+    const covered = new Set(all.map((f) => f.occ));
+    const manual = trades.filter(
+      (t) => t.source !== "broker" && t.note !== "Imported from brokerage" && !(t.status === "open" && covered.has(t.occ)),
+    );
+    const synced = rebuild(all, trades.filter((t) => t.source === "broker"));
+    await writeTrades([...manual, ...synced]);
+    return synced.length;
+  })().finally(() => {
+    sync.pending = undefined;
+  });
+  sync.last = sync.pending;
+  return sync.pending;
+}
+
+// on globalThis so the watcher and the routes share one sync schedule
+const gs = globalThis as { __strikeSync?: { at: number; last?: Promise<number>; pending?: Promise<number> } };
+const sync = (gs.__strikeSync ??= { at: 0 });

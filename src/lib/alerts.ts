@@ -18,7 +18,6 @@ import type { Alert, AlertSettings, AlertsView, Horizon } from "./types";
 
 const EVERY = 60_000;
 const KEEP = 200;
-const ACTIONABLE = new Set(["Take profit", "Sell", "Trim"]);
 const HORIZON: Record<Horizon, string> = { eod: "today", week: "this week", month: "1 month", quarter: "2 months" };
 
 export const DEFAULT_SETTINGS: AlertSettings = { verdicts: true, signalMin: 80, risk: true, phone: true };
@@ -39,7 +38,7 @@ type State = {
 
 // On globalThis so a hot reload in development does not start a second timer. The version
 // resets the state (and stops the old timer) when this file's shape changes.
-const VERSION = 2;
+const VERSION = 3;
 const g = globalThis as { __strikeWatch?: State & { v?: number } };
 if (g.__strikeWatch && g.__strikeWatch.v !== VERSION) {
   clearInterval(g.__strikeWatch.timer);
@@ -110,18 +109,19 @@ async function runCheck() {
     const out: Omit<Alert, "id" | "at" | "read">[] = [];
     const trades = await tradeViews();
 
-    // positions whose verdict turned actionable
+    // positions whose call changed to one that needs action (sell, sell half, trim, or a bad position)
     const open = trades.filter((t) => t.status === "open");
     for (const t of open) {
-      const action = t.verdict?.action;
-      if (!action) continue;
+      const v = t.verdict;
+      if (!v) continue;
       const before = state.verdicts.get(t.id);
-      state.verdicts.set(t.id, action);
-      if (!state.primed || !settings.verdicts || before === action || !ACTIONABLE.has(action)) continue;
+      state.verdicts.set(t.id, v.call);
+      const needsAction = v.move !== "keep" || v.quality === "bad";
+      if (!state.primed || !settings.verdicts || before === v.call || !needsAction) continue;
       out.push({
         kind: "verdict",
-        tone: t.verdict!.tone,
-        title: `${action}: ${t.underlying} ${contractLabel(t)}`,
+        tone: v.tone,
+        title: `${v.call}: ${t.underlying} ${contractLabel(t)}`,
         body: `${t.verdict!.headline} Now ${t.mark != null ? usd(t.mark) : "—"}, entry ${usd(t.entryPrice)} (${t.pnlPct >= 0 ? "+" : ""}${pct(t.pnlPct, 0)}).`,
         href: "/positions",
       });

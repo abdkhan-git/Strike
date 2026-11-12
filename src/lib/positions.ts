@@ -1,4 +1,5 @@
 import { dteOf } from "./analytics";
+import { syncFromBroker } from "./broker";
 import { intrinsic } from "./bs";
 import { chartOf, contractOf, provider } from "./market";
 import { readTrades, writeTrades } from "./store";
@@ -32,6 +33,8 @@ async function settleExpired(trades: Trade[]) {
 
 /** Every logged trade, with open ones marked at the live mid price and given a verdict. */
 export async function tradeViews(): Promise<TradeView[]> {
+  // brokerage fills are the source of truth for anything traded there (at most once a minute)
+  await syncFromBroker().catch((e) => console.warn("[broker] sync failed:", e instanceof Error ? e.message : e));
   const trades = await readTrades();
   if (await settleExpired(trades)) await writeTrades(trades);
 

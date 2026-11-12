@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export function usePoll<T>(url: string | null, ms = 5000) {
   const [data, setData] = useState<T | undefined>();
   const [error, setError] = useState<string | undefined>();
+  /** when the last successful response arrived */
+  const [updatedAt, setUpdatedAt] = useState<number | undefined>();
   const urlRef = useRef(url);
 
   const load = useCallback(async () => {
@@ -17,6 +19,7 @@ export function usePoll<T>(url: string | null, ms = 5000) {
       if (urlRef.current !== u) return; // url changed mid-flight
       if (!res.ok) throw new Error(json?.error ?? `Request failed (${res.status})`);
       setData(json);
+      setUpdatedAt(Date.now());
       setError(undefined);
     } catch (e) {
       if (urlRef.current === u) setError(e instanceof Error ? e.message : "Request failed");
@@ -32,5 +35,5 @@ export function usePoll<T>(url: string | null, ms = 5000) {
     return () => clearInterval(id);
   }, [url, ms, load]);
 
-  return { data, error, reload: load };
+  return { data, error, reload: load, updatedAt };
 }

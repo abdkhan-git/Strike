@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { brokerView, connectUrl, importPositions } from "@/lib/broker";
+import { brokerView, connectUrl, syncFromBroker } from "@/lib/broker";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +9,11 @@ export async function GET() {
 
 /**
  * `?action=connect` returns a link to SnapTrade's page for connecting a brokerage.
- * `?action=import` logs brokerage option positions that are not in the trade log yet.
+ * `?action=sync` rebuilds the brokerage trades in the log from executed orders right away.
  */
 export async function POST(req: NextRequest) {
   try {
-    if (req.nextUrl.searchParams.get("action") === "import") return Response.json({ added: await importPositions() });
+    if (req.nextUrl.searchParams.get("action") === "sync") return Response.json({ trades: await syncFromBroker(true) });
     return Response.json({ url: await connectUrl() });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Brokerage request failed" }, { status: 502 });
