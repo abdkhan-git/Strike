@@ -1,5 +1,8 @@
+import { brokerView } from "./broker";
 import { pct, usd } from "./format";
 import { signals } from "./market";
+import { tradeViews } from "./positions";
+import { readPlan } from "./store";
 import type { PlanIdea, PlanSettings, PlanView, TradeView } from "./types";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -140,4 +143,12 @@ export async function buildPlan(settings: PlanSettings, trades: TradeView[], bro
     halted,
     ideas,
   };
+}
+
+/** Today's plan from the saved settings (or defaults seeded from the brokerage value) and the trade log. */
+export async function currentPlan(trades?: TradeView[]): Promise<PlanView> {
+  const broker = await brokerView();
+  const total = broker.accounts.reduce((s, a) => s + (a.total ?? 0), 0);
+  const settings = (await readPlan()) ?? defaultPlan(total > 0 ? Math.round(total) : undefined);
+  return buildPlan(settings, trades ?? (await tradeViews()), total);
 }

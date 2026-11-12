@@ -22,6 +22,7 @@ Without `TRADIER_TOKEN` the app runs on **simulated** data (amber label in the h
 | `GEMINI_API_KEY` | Writes news digests and contract notes (optional) |
 | `ANTHROPIC_API_KEY` | Fallback writer when Gemini is slow, over quota or fails (optional) |
 | `SNAPTRADE_CLIENT_ID`, `SNAPTRADE_CONSUMER_KEY` | Read-only brokerage balances and option positions, SnapTrade personal key (optional) |
+| `NTFY_TOPIC` | Phone push for alerts through the ntfy app; subscribe to this topic (optional) |
 | `GEMINI_MODEL`, `CLAUDE_MODEL` | Override the models; defaults are in `src/lib/ai.ts` |
 
 ## Layout
@@ -34,7 +35,8 @@ src/
     calculator/page.tsx   Order ticket: live chain, scenario sliders, P/L, log purchase
     positions/page.tsx    Open positions with live verdicts, brokerage panel, history, daily P/L
     plan/page.tsx         Goal pace, risk budget for the next trade, sized setups
-    api/                  scan, signals, symbol, chart, news, trades, plan, broker, status
+    api/                  scan, signals, symbol, chart, news, trades, plan, broker, alerts, status
+  instrumentation.ts      Starts the alert watcher when the server boots
   lib/
     providers/tradier.ts  Live data adapter (rate-limited to 105 requests a minute)
     providers/sim.ts      Simulated data
@@ -44,6 +46,8 @@ src/
     verdict.ts            Take profit / Sell / Trim / Hold / Wait rules for open positions
     positions.ts          Marks open trades, settles expired ones, attaches verdicts
     plan.ts               Goal pace, risk budget and sized setups
+    alerts.ts             Background watcher: verdict, signal and loss-limit alerts; ntfy push
+    session.ts            Market session from the clock
     broker.ts             SnapTrade: balances, option positions, import to the log
     reason.ts             One-line explanation of why a contract stands out (rules, no model)
     cache.ts              TTL cache with shared in-flight loads and stale-while-refresh
@@ -52,7 +56,7 @@ src/
     insights.ts           News digest per symbol and news notes on unusual contracts
     bs.ts                 Black-Scholes pricing, greeks, IV solver
     store.ts              data/trades.json and data/plan.json (git-ignored)
-  components/             Shell, ticker tape, command palette (Ctrl K), signals rail, price chart,
+  components/             Shell, alert bell, ticker tape, command palette (Ctrl K), signals rail, price chart,
                           news panel, UI primitives
 ```
 
@@ -67,11 +71,11 @@ src/
 - **Position verdicts:** fixed rules checked in order. Take profit at +100%, or at +50% when momentum turns or 3 days remain. Sell when expiring out of the money, or down 50% with 5 days or less or under 15% implied odds. Trim before earnings when up 20%+, or when a day of decay exceeds 8% of the position and momentum is not helping. Otherwise hold or wait. Target and stop are +100% and −50% of the entry premium.
 - **Expired positions:** closed automatically at intrinsic value, using the stock's close on expiration day.
 - **Daily plan:** equity is the live brokerage value when linked, otherwise start + realized + open P/L. Risk per trade is a share of equity, halved after a losing day, halved again after three in a row, and zero once the daily loss limit is hit or every slot is used.
+- **Alerts:** a watcher started from `src/instrumentation.ts` runs once a minute from 4:00 to 20:00 ET on weekdays. It alerts when an open position's verdict changes to Take profit, Sell or Trim, when a signal at or above the chosen conviction (default 80) appears for the first time that day, and once when the daily loss limit is hit. The first pass after a restart only records the current state. Alerts are kept in `data/alerts.json` (last 200), shown under the bell, sent as desktop notifications while a Strike tab is open, and pushed to the phone through ntfy when `NTFY_TOPIC` is set.
 - **Reasoning lines:** assembled from the measured figures (volume vs open interest, where the last trade printed in the bid/ask, the symbol's call/put split, earnings date). No language model is involved.
 - **News notes and digests:** a model reads the last three days of headlines and writes one sentence per unusual contract (batched, at most one batch every 3 minutes, each note kept 30 minutes) and a short digest per symbol (kept 20 minutes). Generation runs in the background, so the text appears a poll or two after the page loads. Off on simulated data.
 - **Scanner expiry:** first expiry at least a day out that covers the next earnings date.
 
 ## Roadmap
 
-- Alerts (desktop / phone) when a verdict changes or a signal crosses a threshold
 - Desktop build (Electron or Tauri)

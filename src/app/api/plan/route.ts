@@ -1,17 +1,12 @@
-import { brokerView } from "@/lib/broker";
-import { buildPlan, defaultPlan } from "@/lib/plan";
-import { tradeViews } from "@/lib/positions";
-import { readPlan, writePlan } from "@/lib/store";
+import { currentPlan } from "@/lib/plan";
+import { writePlan } from "@/lib/store";
 import type { PlanSettings } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const broker = await brokerView();
-    const total = broker.accounts.reduce((s, a) => s + (a.total ?? 0), 0);
-    const plan = (await readPlan()) ?? defaultPlan(total > 0 ? Math.round(total) : undefined);
-    return Response.json(await buildPlan(plan, await tradeViews(), total));
+    return Response.json(await currentPlan());
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Could not build the plan" }, { status: 502 });
   }

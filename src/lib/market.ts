@@ -5,13 +5,16 @@ import { tradierProvider } from "./providers/tradier";
 import { outlookOf, trendOf } from "./outlook";
 import type { Catalyst, ChartResult, Enriched, Horizon, Provider, ScanResult, Signal, SignalsResult, SymbolView } from "./types";
 
-let active: Provider | undefined;
+// One provider per process (on globalThis, like the cache) so every caller shares Tradier's rate limiter.
+const g = globalThis as { __strikeProvider?: Provider };
 
 export function provider(): Provider {
-  if (active) return active;
+  if (g.__strikeProvider) return g.__strikeProvider;
   const token = process.env.TRADIER_TOKEN;
-  active = token ? tradierProvider(token, process.env.TRADIER_ENV ?? "sandbox", process.env.FINNHUB_API_KEY) : simProvider;
-  return active;
+  g.__strikeProvider = token
+    ? tradierProvider(token, process.env.TRADIER_ENV ?? "sandbox", process.env.FINNHUB_API_KEY)
+    : simProvider;
+  return g.__strikeProvider;
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {

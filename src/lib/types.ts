@@ -319,6 +319,42 @@ export interface BrokerView {
   error?: string;
 }
 
+export type AlertKind = "verdict" | "signal" | "risk" | "test";
+
+export interface Alert {
+  id: string;
+  at: number;
+  kind: AlertKind;
+  tone: "up" | "down" | "warn" | "neutral";
+  title: string;
+  body: string;
+  /** page to open when the alert is clicked */
+  href?: string;
+  read: boolean;
+}
+
+export interface AlertSettings {
+  /** alert when an open position's verdict changes to Take profit, Sell or Trim */
+  verdicts: boolean;
+  /** alert on new signals at or above this conviction; 0 turns signal alerts off */
+  signalMin: number;
+  /** alert when today's loss reaches the plan's daily limit */
+  risk: boolean;
+  /** also push to the phone through ntfy */
+  phone: boolean;
+}
+
+export interface AlertsView {
+  alerts: Alert[];
+  unread: number;
+  settings: AlertSettings;
+  /** an ntfy topic is configured in the environment */
+  phoneReady: boolean;
+  /** last time the watcher ran, ms */
+  checkedAt?: number;
+  watching: boolean;
+}
+
 export interface Provider {
   info: ProviderInfo;
   /** one-minute bars for the most recent session */

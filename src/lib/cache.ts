@@ -1,6 +1,9 @@
 type Entry<T> = { at: number; value?: T; pending?: Promise<T> };
 
-const store = new Map<string, Entry<unknown>>();
+// On globalThis so the background watcher (loaded from instrumentation) and the route
+// handlers, which Next bundles separately, share one cache and never fetch the same data twice.
+const g = globalThis as { __strikeCache?: Map<string, Entry<unknown>> };
+const store = (g.__strikeCache ??= new Map<string, Entry<unknown>>());
 
 /**
  * Returns a value no older than `ttl` ms. Concurrent callers share one load, so a slow

@@ -5,8 +5,10 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { session } from "@/lib/session";
 import type { ProviderInfo } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
+import { AlertBell } from "./AlertBell";
 import { CommandPalette } from "./CommandPalette";
 import { TickerTape } from "./TickerTape";
 
@@ -16,32 +18,6 @@ const NAV = [
   { href: "/positions", label: "Positions" },
   { href: "/plan", label: "Plan" },
 ];
-
-/** US equity session from the clock alone; exchange holidays are not accounted for. */
-function session(now: Date) {
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    })
-      .formatToParts(now)
-      .map((x) => [x.type, x.value]),
-  );
-  const mins = Number(p.hour) * 60 + Number(p.minute);
-  const weekday = p.weekday !== "Sat" && p.weekday !== "Sun";
-  const state =
-    !weekday || mins < 240 || mins >= 1200
-      ? "Closed"
-      : mins < 570
-        ? "Pre-market"
-        : mins < 960
-          ? "Market open"
-          : "After hours";
-  return { state, time: `${p.hour}:${p.minute} ET` };
-}
 
 function MarketClock() {
   const [now, setNow] = useState<Date | null>(null);
@@ -119,6 +95,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="hidden sm:block">Search any ticker</span>
             <kbd className="num ml-auto hidden text-[10.5px] text-faint sm:block">Ctrl K</kbd>
           </button>
+          <AlertBell />
           <MarketClock />
           {info && (
             <div className="hidden items-center gap-2 text-[12px] md:flex" title={info.note}>

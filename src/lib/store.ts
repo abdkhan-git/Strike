@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import type { PlanSettings, Trade } from "./types";
+import type { Alert, AlertSettings, PlanSettings, Trade } from "./types";
 
 // Everything the app remembers lives in plain JSON files under data/ (git-ignored),
 // so it is easy to inspect and back up.
@@ -25,3 +25,9 @@ export const writeTrades = (trades: Trade[]) => write("trades.json", trades);
 export const readPlan = () => read<PlanSettings | null>("plan.json", null);
 export const writePlan = (plan: PlanSettings) => write("plan.json", plan);
 
+
+export const readAlerts = () => read<Alert[]>("alerts.json", []);
+export const writeAlerts = (alerts: Alert[]) => write("alerts.json", alerts);
+
+export const readAlertSettings = () => read<AlertSettings | null>("alert-settings.json", null);
+export const writeAlertSettings = (s: AlertSettings) => write("alert-settings.json", s);
