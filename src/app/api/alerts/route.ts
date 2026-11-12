@@ -27,6 +27,7 @@ export async function PUT(req: Request) {
     verdicts: typeof b.verdicts === "boolean" ? b.verdicts : current.verdicts,
     risk: typeof b.risk === "boolean" ? b.risk : current.risk,
     phone: typeof b.phone === "boolean" ? b.phone : current.phone,
+    picks: typeof b.picks === "boolean" ? b.picks : current.picks,
     signalMin: Number.isFinite(Number(b.signalMin)) ? Math.min(100, Math.max(0, Math.round(Number(b.signalMin)))) : current.signalMin,
   };
   await writeAlertSettings(next);

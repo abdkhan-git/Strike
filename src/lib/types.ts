@@ -328,7 +328,84 @@ export interface BrokerView {
   error?: string;
 }
 
-export type AlertKind = "verdict" | "signal" | "risk" | "test";
+/** One morning pick: a sized trade with the evidence for it. */
+export interface TradePick {
+  rank: number;
+  symbol: string;
+  name: string;
+  direction: "bullish" | "bearish";
+  horizon: Horizon;
+  /** 0-100 blend of the signal's conviction and how many other things agree with it */
+  score: number;
+  conviction: number;
+  contract: Enriched;
+  spot: number;
+  qty: number;
+  cost: number;
+  /** option prices for the +100% target and the -50% stop */
+  target: number;
+  stop: number;
+  /** stock move needed to break even, as a share of a typical move to expiry (1 = one standard deviation) */
+  reach: number;
+  reasons: string[];
+}
+
+export interface Briefing {
+  day: string;
+  at: number;
+  equity: number;
+  budget: number;
+  cash?: number;
+  picks: TradePick[];
+  /** caveats about today's list, e.g. cash on hand is below the total cost */
+  notes: string[];
+  /** the plan says no new trades right now (loss limit hit or no free slots) */
+  paused?: boolean;
+}
+
+export type Checkpoint = "h1" | "close" | "d1" | "expiry";
+
+/** A pick or a strong signal, recorded when it appeared and scored afterwards on its contract's price. */
+export interface TrackRecord {
+  id: string;
+  kind: "pick" | "signal";
+  day: string;
+  at: number;
+  symbol: string;
+  direction: "bullish" | "bearish";
+  horizon: Horizon;
+  conviction: number;
+  score?: number;
+  occ: string;
+  type: OptType;
+  strike: number;
+  expiration: string;
+  /** ask when recorded: what buying it would have cost */
+  entry: number;
+  spotAtEntry: number;
+  marks: Partial<Record<Checkpoint, { at: number; mark: number; ret: number }>>;
+  /** best mid seen while it was open, sampled every few minutes */
+  peak?: { at: number; mark: number; ret: number };
+  done: boolean;
+}
+
+export interface TrackBucket {
+  label: string;
+  n: number;
+  /** average return and share of winners at each checkpoint (only records that reached it) */
+  at: Partial<Record<Checkpoint, { n: number; avg: number; win: number }>>;
+  /** share that reached +50% and +100% at some point */
+  hit50: number;
+  hit100: number;
+}
+
+export interface TrackView {
+  picks: TrackBucket[];
+  signals: TrackBucket[];
+  recent: TrackRecord[];
+}
+
+export type AlertKind = "verdict" | "signal" | "risk" | "test" | "picks";
 
 export interface Alert {
   id: string;
@@ -351,6 +428,8 @@ export interface AlertSettings {
   risk: boolean;
   /** also push to the phone through ntfy */
   phone: boolean;
+  /** morning picks at 9:45 ET */
+  picks: boolean;
 }
 
 export interface AlertsView {

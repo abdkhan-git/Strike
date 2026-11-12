@@ -1,8 +1,10 @@
 import { contractLabel, pct, usd } from "./format";
 import { signals } from "./market";
+import { latestBriefing, runBriefing } from "./picks";
 import { currentPlan } from "./plan";
 import { tradeViews } from "./positions";
 import { session } from "./session";
+import { recordSignals, scoreTrack } from "./track";
 import { readAlerts, readAlertSettings, writeAlerts } from "./store";
 import type { Alert, AlertSettings, AlertsView, Horizon } from "./types";
 
@@ -20,7 +22,7 @@ const EVERY = 60_000;
 const KEEP = 200;
 const HORIZON: Record<Horizon, string> = { eod: "today", week: "this week", month: "1 month", quarter: "2 months" };
 
-export const DEFAULT_SETTINGS: AlertSettings = { verdicts: true, signalMin: 80, risk: true, phone: true };
+export const DEFAULT_SETTINGS: AlertSettings = { verdicts: true, signalMin: 80, risk: true, phone: true, picks: true };
 
 type State = {
   v?: number;
@@ -38,7 +40,7 @@ type State = {
 
 // On globalThis so a hot reload in development does not start a second timer. The version
 // resets the state (and stops the old timer) when this file's shape changes.
-const VERSION = 3;
+const VERSION = 4;
 const g = globalThis as { __strikeWatch?: State & { v?: number } };
 if (g.__strikeWatch && g.__strikeWatch.v !== VERSION) {
   clearInterval(g.__strikeWatch.timer);
@@ -71,7 +73,7 @@ async function pushPhone(a: Alert) {
       body: a.body,
       headers: {
         Title: a.title.replace(/[^\x20-\x7E]/g, ""),
-        Priority: a.tone === "down" || a.kind === "risk" ? "high" : "default",
+        Priority: a.tone === "down" || a.kind === "risk" || a.kind === "picks" ? "high" : "default",
         Tags: a.tone === "up" ? "chart_with_upwards_trend" : a.tone === "down" ? "warning" : "bell",
         ...(base && a.href ? { Click: base + a.href } : {}),
       },
@@ -161,6 +163,21 @@ async function runCheck() {
           });
       }
     }
+
+    // morning picks: once a weekday, 15 minutes after the open when option flow has formed
+    const { state: sess, time } = session(new Date());
+    const [hh, mm] = time.split(/[: ]/).map(Number);
+    if (settings.picks && sess === "Market open" && hh * 60 + mm >= 9 * 60 + 45) {
+      const last = await latestBriefing();
+      if (last?.day !== today) {
+        const { briefing, title, body } = await runBriefing();
+        out.push({ kind: "picks", tone: briefing.picks.length ? "up" : "neutral", title, body, href: "/picks" });
+      }
+    }
+
+    // track record: log today's strong signals and score anything that has come due
+    await recordSignals((await signals()).signals);
+    await scoreTrack();
 
     state.primed = true;
     state.checkedAt = Date.now();

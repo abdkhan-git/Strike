@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import path from "path";
-import type { Alert, AlertSettings, PlanSettings, Trade } from "./types";
+import type { Alert, AlertSettings, Briefing, PlanSettings, TrackRecord, Trade } from "./types";
 
 // Everything the app remembers lives in plain JSON files under data/ (git-ignored),
 // so it is easy to inspect and back up.
@@ -31,3 +31,9 @@ export const writeAlerts = (alerts: Alert[]) => write("alerts.json", alerts);
 
 export const readAlertSettings = () => read<AlertSettings | null>("alert-settings.json", null);
 export const writeAlertSettings = (s: AlertSettings) => write("alert-settings.json", s);
+
+export const readTrack = () => read<TrackRecord[]>("track.json", []);
+export const writeTrack = (rows: TrackRecord[]) => write("track.json", rows);
+
+export const readBriefings = () => read<Briefing[]>("briefings.json", []);
+export const writeBriefings = (rows: Briefing[]) => write("briefings.json", rows);

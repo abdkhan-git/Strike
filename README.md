@@ -35,7 +35,8 @@ src/
     calculator/page.tsx   Order ticket: live chain, scenario sliders, P/L, log purchase
     positions/page.tsx    Open positions with direct calls, call summary, brokerage panel, what's-working breakdown, history
     plan/page.tsx         Goal pace, risk budget for the next trade, sized setups
-    api/                  scan, signals, symbol, chart, news, trades, plan, broker, alerts, status
+    picks/page.tsx        Morning picks with live returns, track record for picks and signals
+    api/                  scan, signals, symbol, chart, news, trades, plan, broker, alerts, picks, status
   instrumentation.ts      Starts the alert watcher when the server boots
   lib/
     providers/tradier.ts  Live data adapter (rate-limited to 105 requests a minute)
@@ -46,7 +47,9 @@ src/
     verdict.ts            Take profit / Sell / Trim / Hold / Wait rules for open positions
     positions.ts          Marks open trades, settles expired ones, attaches verdicts
     plan.ts               Goal pace, risk budget and sized setups
-    alerts.ts             Background watcher: verdict, signal and loss-limit alerts; ntfy push
+    alerts.ts             Background watcher: position calls, signals, loss limit, morning picks; ntfy push
+    picks.ts              Morning picks: rank the day's setups and size them to the plan
+    track.ts              Track record: score picks and signals at 1h, close, next day, expiry
     session.ts            Market session from the clock
     broker.ts             SnapTrade: balances, option positions, and the trade log rebuilt from executed orders
     reason.ts             One-line explanation of why a contract stands out (rules, no model)
@@ -73,6 +76,8 @@ src/
 - **Expired positions:** closed automatically at intrinsic value, using the stock's close on expiration day.
 - **Daily plan:** equity is the live brokerage value when linked, otherwise start + realized + open P/L. Risk per trade is a share of equity, halved after a losing day, halved again after three in a row, and zero once the daily loss limit is hit or every slot is used.
 - **Alerts:** a watcher started from `src/instrumentation.ts` runs once a minute from 4:00 to 20:00 ET on weekdays. It alerts when an open position's verdict changes to Take profit, Sell or Trim, when a signal at or above the chosen conviction (default 80) appears for the first time that day, and once when the daily loss limit is hit. The first pass after a restart only records the current state. Alerts are kept in `data/alerts.json` (last 200), shown under the bell, sent as desktop notifications while a Strike tab is open, and pushed to the phone through ntfy when `NTFY_TOPIC` is set.
+- **Morning picks:** at 9:45 ET on weekdays the watcher ranks the day's signals (conviction 60+, no same-day expiries, spread under 12%, 200+ contracts traded) on a 0–100 score: 50% conviction, 15% stock momentum agreeing over 15 minutes, 10% stock moving that way today, 10% 20-day trend agreeing, 15% how small the break-even move is against a one-standard-deviation move to expiry. The top five, one per symbol, are sized to the plan's risk per trade and pushed to the phone. On a day the plan has paused trading they are still listed at base size, marked for watching only.
+- **Track record:** every pick and every signal at conviction 70+ (first time it appears each day) is recorded at its ask and scored on the same contract's mid one hour later, at that day's close, at the next weekday's close and at expiry (intrinsic value at the closing price). The best mid seen in between is sampled every few minutes. Stored in `data/track.json`.
 - **Reasoning lines:** assembled from the measured figures (volume vs open interest, where the last trade printed in the bid/ask, the symbol's call/put split, earnings date). No language model is involved.
 - **News notes and digests:** a model reads the last three days of headlines and writes one sentence per unusual contract (batched, at most one batch every 3 minutes, each note kept 30 minutes) and a short digest per symbol (kept 20 minutes). Generation runs in the background, so the text appears a poll or two after the page loads. Off on simulated data.
 - **Scanner expiry:** first expiry at least a day out that covers the next earnings date.
