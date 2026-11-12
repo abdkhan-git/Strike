@@ -4,8 +4,9 @@ import clsx from "clsx";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { TradeInstruction } from "@/components/TradeInstruction";
 import { Button, Meter, Panel, PanelHeader, Stat, StatStrip, ticketHref } from "@/components/ui";
-import { contractLabel, dateLabel, pct, signedUsd, usd } from "@/lib/format";
+import { dateLabel, pct, signedUsd, usd } from "@/lib/format";
 import type { Horizon, PlanSettings, PlanView } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
 
@@ -117,9 +118,7 @@ export default function PlanPage() {
                           </span>
                           <span className="text-[12px] text-muted">{HORIZON[i.horizon]}</span>
                         </div>
-                        <div className="mt-0.5 text-[12.5px]">
-                          Buy {i.qty} × <span className={up ? "text-up" : "text-down"}>{contractLabel(i.contract)}</span>
-                        </div>
+
                       </div>
                       <div className="num flex flex-1 flex-wrap gap-x-5 text-[12px] text-muted">
                         <span>
@@ -140,6 +139,7 @@ export default function PlanPage() {
                         <Button>Open ticket</Button>
                       </Link>
                     </div>
+                    <TradeInstruction c={i.contract} horizon={i.horizon} budget={data.budget > 0 ? data.budget : undefined} compact className="mt-2 border-l-2 border-line-strong pl-3" />
                     <p className="mt-1.5 text-[12px] text-muted">{i.why}</p>
                   </li>
                 );

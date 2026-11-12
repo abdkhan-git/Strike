@@ -8,6 +8,7 @@ import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Toolt
 import { LogTradeDialog, type Loggable } from "@/components/LogTradeDialog";
 import { NewsPanel } from "@/components/NewsPanel";
 import { OutlookBand, PriceChart } from "@/components/PriceChart";
+import { SymbolTrade } from "@/components/SymbolTrade";
 import { Tick } from "@/components/Tick";
 import { Button, CatalystTag, Change, Chip, Meter, Panel, PanelHeader, Segmented, Stat, StatStrip, ticketHref } from "@/components/ui";
 import { compact, pct, shortDate, signedPct, signedUsd, strikeLabel, usd } from "@/lib/format";
@@ -92,6 +93,8 @@ function SymbolDetail({ symbol }: { symbol: string }) {
           </Link>
         </div>
       </div>
+
+      <SymbolTrade symbol={symbol} callShare={(s.flowBias + 1) / 2} outlook={chart?.outlook} />
 
       <OutlookBand outlook={chart?.outlook} loading={!chart} />
 

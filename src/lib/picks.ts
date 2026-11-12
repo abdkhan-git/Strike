@@ -1,5 +1,6 @@
 import { brokerView } from "./broker";
-import { contractLabel, pct, signedPct, usd } from "./format";
+import { pct, signedPct, usd } from "./format";
+import { buyInstruction } from "./instruction";
 import { chartOf, signals } from "./market";
 import { currentPlan } from "./plan";
 import { readBriefings, writeBriefings } from "./store";
@@ -71,8 +72,8 @@ async function score(s: Signal): Promise<Omit<TradePick, "rank" | "qty" | "cost"
     conviction: s.conviction,
     contract: c,
     spot: s.price,
-    target: price * 2,
-    stop: price * 0.5,
+    target: price,
+    stop: price,
     reach,
     reasons,
   };
@@ -92,12 +93,10 @@ export async function buildBriefing(): Promise<Briefing> {
   const budget = plan.budget > 0 ? plan.budget : plan.equity * plan.settings.riskPerTrade;
   const picks: TradePick[] = [];
   for (const p of scored) {
-    const each = (p.contract.ask || p.contract.mid) * 100;
-    let qty = Math.floor(budget / each);
-    // one contract is allowed up to twice the budget; beyond that it is too big for this account
-    if (qty < 1 && each <= budget * 2) qty = 1;
-    if (qty < 1) continue;
-    picks.push({ ...p, rank: picks.length + 1, qty, cost: qty * each });
+    const ins = buyInstruction(p.contract, { budget, horizon: p.horizon });
+    // one contract may cost up to twice the budget; beyond that it is too big for this account
+    if (ins.overBudget) continue;
+    picks.push({ ...p, rank: picks.length + 1, qty: ins.qty, cost: ins.cost, target: ins.targetPrice, stop: ins.stopPrice });
     if (picks.length === COUNT) break;
   }
 
@@ -130,8 +129,7 @@ export async function runBriefing(): Promise<{ briefing: Briefing; title: string
   await recordPicks(briefing.picks);
 
   const lines = briefing.picks.map(
-    (p) =>
-      `${p.rank}. ${p.symbol} ${contractLabel(p.contract)} x${p.qty} @ ${usd(p.contract.ask)} = ${usd(p.cost, 0)} (score ${p.score}, sell half at ${usd(p.target)}, cut at ${usd(p.stop)})`,
+    (p) => `${p.rank}. ${buyInstruction(p.contract, { budget: briefing.budget, horizon: p.horizon }).text} (score ${p.score})`,
   );
   return {
     briefing,

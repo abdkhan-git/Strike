@@ -244,9 +244,15 @@ export interface Verdict {
   /** dollars of time value the position loses per day */
   decayPerDay: number;
   dte: number;
-  /** option price at which the +100% target and the -50% stop sit */
+  /** option prices of the profit target and the stop, from the exit rules for this contract's horizon */
   target: number;
   stop: number;
+  targetPct: number;
+  stopPct: number;
+  /** latest time to be out of the position */
+  sellBy: string;
+  /** the exact order to place now, e.g. "Sell 2 of 4 now at a limit of $6.20." */
+  doNow: string;
 }
 
 export interface PlanSettings {
@@ -268,7 +274,7 @@ export interface PlanIdea {
   direction: "bullish" | "bearish";
   horizon: Horizon;
   conviction: number;
-  contract: Pick<Enriched, "occ" | "underlying" | "type" | "strike" | "expiration" | "ask" | "mid" | "pop" | "breakeven">;
+  contract: Enriched;
   qty: number;
   cost: number;
   why: string;
@@ -342,7 +348,7 @@ export interface TradePick {
   spot: number;
   qty: number;
   cost: number;
-  /** option prices for the +100% target and the -50% stop */
+  /** option prices for the profit target and the stop, from the exit rules for its horizon */
   target: number;
   stop: number;
   /** stock move needed to break even, as a share of a typical move to expiry (1 = one standard deviation) */

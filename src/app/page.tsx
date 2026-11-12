@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { LogTradeDialog, type Loggable } from "@/components/LogTradeDialog";
 import { SignalsRail } from "@/components/SignalsRail";
+import { TradeInstruction, useBudget } from "@/components/TradeInstruction";
 import { Button, CatalystTag, Change, FlowBar, Meter, Panel, Segmented, Stat, StatStrip, Tabs, ticketHref } from "@/components/ui";
 import { compact, contractLabel, pct, usd } from "@/lib/format";
 import type { ScanResult } from "@/lib/types";
@@ -16,6 +17,7 @@ type View = "symbols" | "unusual";
 export default function ScannerPage() {
   const router = useRouter();
   const { data, error } = usePoll<ScanResult>("/api/scan", 5000);
+  const { budget } = useBudget();
   const [view, setView] = useState<View>("symbols");
   const [filter, setFilter] = useState<Filter>("all");
   const [logging, setLogging] = useState<Loggable | null>(null);
@@ -185,6 +187,15 @@ export default function ScannerPage() {
                         Log
                       </Button>
                     </div>
+                  </div>
+                  <div className="mt-2">
+                    {c.dte < 1 ? (
+                      <p className="text-[12px] text-warn">Same-day expiry: no order. Your history loses most on these.</p>
+                    ) : c.lastPos <= 0.3 ? (
+                      <p className="text-[12px] text-muted">Prints are at the bid, so this volume looks like selling. Not a buy signal.</p>
+                    ) : (
+                      <TradeInstruction c={c} budget={budget} compact className="border-l-2 border-line-strong pl-3" />
+                    )}
                   </div>
                   {(c.why || c.ai) && (
                     <div className="mt-2 max-w-[90ch] space-y-1 border-l border-line-strong pl-3 text-[12.5px] leading-snug">

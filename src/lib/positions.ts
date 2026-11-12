@@ -34,8 +34,14 @@ async function settleExpired(trades: Trade[]) {
 /** Every logged trade, with open ones marked at the live mid price and given a verdict. */
 export async function tradeViews(): Promise<TradeView[]> {
   // brokerage fills are the source of truth for anything traded there (at most once a minute)
-  await syncFromBroker().catch((e) => console.warn("[broker] sync failed:", e instanceof Error ? e.message : e));
-  const trades = await readTrades();
+  // Runs in the background so the page never waits on SnapTrade; the next poll (5 s) shows
+  // anything it changed. Only the very first sync, with nothing from the broker yet, is awaited.
+  const syncing = syncFromBroker().catch((e) => console.warn("[broker] sync failed:", e instanceof Error ? e.message : e));
+  let trades = await readTrades();
+  if (!trades.some((t) => t.source === "broker")) {
+    await syncing;
+    trades = await readTrades();
+  }
   if (await settleExpired(trades)) await writeTrades(trades);
 
   const open = trades.filter((t) => t.status === "open");

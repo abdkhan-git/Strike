@@ -11,6 +11,7 @@ import { Button, CatalystTag, Change, Chip, Panel, PanelHeader, Segmented } from
 import { breakeven, bsPrice, popLong } from "@/lib/bs";
 import { compact, pct, shortDate, signedPct, signedUsd, strikeLabel, usd } from "@/lib/format";
 import type { Enriched, OptType, ScanResult, SymbolView } from "@/lib/types";
+import { entryTiming, exitRules, horizonOfDte, sellBy } from "@/lib/instruction";
 import { usePoll } from "@/lib/usePoll";
 
 export default function CalculatorPage() {
@@ -533,6 +534,8 @@ function OrderTicket({
         ))}
       </div>
 
+      <ExitPlan c={c} qty={qty} price={P} />
+
       <div className="p-4">
         {logged === "done" ? (
           <div className="flex items-center justify-between border border-up/40 px-3 py-2 text-[12.5px]">
@@ -667,5 +670,34 @@ function Analysis({
         </p>
       </Panel>
     </>
+  );
+}
+
+/** The exits for this exact order, from the same rules the position calls use. */
+function ExitPlan({ c, qty, price }: { c: Enriched; qty: number; price: number }) {
+  const h = horizonOfDte(c.dte);
+  const r = exitRules(h);
+  const timing = entryTiming();
+  const by = sellBy(h, timing.day, c.expiration);
+  const target = price * (1 + r.target);
+  const stop = price * (1 - r.stop);
+  if (!(price > 0)) return null;
+  return (
+    <div className="border-t border-line px-4 py-3">
+      <div className="cap">Your plan for this trade</div>
+      <ul className="mt-1.5 space-y-1 text-[12.5px] leading-snug">
+        <li>
+          Buy {qty} at a limit of <span className="num">{usd(price)}</span>, {timing.when}.
+        </li>
+        <li>
+          Sell at <span className="num text-up">{usd(target)}</span> (+{pct(r.target, 0)}, +{usd((target - price) * 100 * qty, 0)}) or by{" "}
+          <span className="num">{by.text}</span>, whichever comes first.
+        </li>
+        <li>
+          Cut it at <span className="num text-down">{usd(stop)}</span> (−{usd((price - stop) * 100 * qty, 0)}).
+        </li>
+      </ul>
+      {h === "eod" && <p className="mt-1.5 text-[11.5px] text-warn">Same-day expiry: your history loses most on these.</p>}
+    </div>
   );
 }

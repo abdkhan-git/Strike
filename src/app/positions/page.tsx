@@ -320,11 +320,14 @@ function PositionRow({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className={clsx("text-[17px] font-semibold tracking-tight", CALL_TEXT[v.tone])}>{v.call}</span>
               <span className="num text-[11.5px] text-muted">
-                {Math.max(0, Math.round(v.dte))}d left · {pct(v.odds, 0)} past break-even · {pct(v.doubleOdds, 0)} to double · decay{" "}
-                {usd(v.decayPerDay, 0)}/day
+                sell by {v.sellBy} · {pct(v.odds, 0)} past break-even · {pct(v.doubleOdds, 0)} to double · decay {usd(v.decayPerDay, 0)}/day
               </span>
             </div>
             <p className="mt-1.5 text-[13.5px] leading-relaxed">{v.headline}</p>
+            <p className="mt-2 inline-block border border-line-strong bg-raised px-2.5 py-1.5 text-[13px] font-medium">
+              <span className="cap mr-2 !text-muted">Do this now</span>
+              {v.doNow}
+            </p>
             <ul className="mt-2 grid gap-x-6 gap-y-0.5 text-[12px] leading-snug text-muted md:grid-cols-2">
               {v.reasons.map((r) => (
                 <li key={r} className="flex gap-2">

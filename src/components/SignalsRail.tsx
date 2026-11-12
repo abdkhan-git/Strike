@@ -7,6 +7,7 @@ import { useState } from "react";
 import { shortDate, usd } from "@/lib/format";
 import type { Horizon, SignalsResult } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
+import { TradeInstruction, useBudget } from "./TradeInstruction";
 import { Meter, Panel, ticketHref } from "./ui";
 
 const HORIZONS: { value: Horizon | "all"; label: string }[] = [
@@ -25,6 +26,7 @@ const STRONG = 70;
 
 export function SignalsRail() {
   const { data, error } = usePoll<SignalsResult>("/api/signals", 10_000);
+  const { budget, paused } = useBudget();
   const [horizon, setHorizon] = useState<Horizon | "all">("all");
 
   const list = (data?.signals ?? [])
@@ -93,7 +95,13 @@ export function SignalsRail() {
                     </span>
                     <span className="num ml-auto">{usd(s.price)}</span>
                   </div>
-                  <ul className="mt-2 space-y-0.5 text-[12px] leading-snug text-muted">
+                  {s.lead && s.horizon !== "eod" && (
+                    <TradeInstruction c={s.lead} horizon={s.horizon} budget={budget} compact className="mt-2 border-l border-line-strong pl-2.5" />
+                  )}
+                  {s.horizon === "eod" && (
+                    <p className="mt-2 text-[11.5px] text-warn">Same-day expiry: your history loses most here. Watch, don't chase.</p>
+                  )}
+                  <ul className="mt-2 space-y-0.5 text-[11.5px] leading-snug text-faint">
                     {s.reasons.map((r) => (
                       <li key={r} className="flex gap-2">
                         <span className="mt-[7px] size-[3px] shrink-0 bg-faint" />
@@ -108,8 +116,8 @@ export function SignalsRail() {
         </ul>
       )}
       <p className="border-t border-line px-4 py-2.5 text-[11px] leading-snug text-faint">
-        Conviction measures how lopsided, unusual and large the dominant side is. Volume does not show who initiated a trade,
-        and heavy put buying is often a hedge.
+        {paused ? "Your plan has paused new trades today, so these are for watching or tomorrow. " : ""}Orders are sized to your plan's
+        risk per trade. Conviction measures how lopsided, unusual and large the dominant side is; heavy put buying can also be a hedge.
       </p>
     </Panel>
   );

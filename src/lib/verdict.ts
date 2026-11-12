@@ -1,5 +1,6 @@
 import { popLong, probAbove } from "./bs";
 import { pct, shortDate, signedPct, usd } from "./format";
+import { exitRules, horizonOfDte, sellBy } from "./instruction";
 import type { Catalyst, Enriched, Outlook, Trade, Trend, Verdict } from "./types";
 
 /**
@@ -49,6 +50,15 @@ export function verdictOf(
     ctx.catalyst?.kind === "earnings" && ctx.catalyst.date && ctx.catalyst.date <= t.expiration ? ctx.catalyst.date : undefined;
   const daysToEarnings = earnings ? Math.round((Date.parse(earnings + "T21:00:00Z") - Date.now()) / 86_400_000) : undefined;
   const value = mark * 100 * t.qty;
+  const entryDay = new Date(t.entryAt).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const horizon = horizonOfDte((Date.parse(t.expiration + "T21:00:00Z") - t.entryAt) / 86_400_000);
+  const rules = exitRules(horizon);
+  const target = t.entryPrice * (1 + rules.target);
+  const stop = t.entryPrice * (1 - rules.stop);
+  const by = sellBy(horizon, entryDay, t.expiration);
+  const pastSellBy = Date.now() > by.at;
+  // sell limits a quarter of the way from mid toward the bid: usually fills without giving up the spread
+  const sellLimit = Math.max(0.01, Math.floor((mark - Math.max(0, mark - c.bid) * 0.25) * 100) / 100);
   const gain = (mark - t.entryPrice) * 100 * t.qty;
 
   const reasons: string[] = [
@@ -68,7 +78,28 @@ export function verdictOf(
   if (ctx.trend) reasons.push(`Stock is ${signedPct(ctx.trend.vsSma20, 1)} vs its 20-day average, ${trendWith ? "with" : "against"} your direction`);
   if (earnings) reasons.push(`Earnings ${shortDate(earnings)} lands before expiry; implied vol usually drops right after`);
 
-  const base = { reasons, odds, doubleOdds, decayPerDay, dte, target: t.entryPrice * 2, stop: t.entryPrice * 0.5 };
+  const half = Math.max(1, Math.floor(t.qty / 2));
+  const third = Math.max(1, Math.round(t.qty / 3));
+  const orderFor = (move: Verdict["move"]) =>
+    move === "sell" || (move !== "keep" && t.qty === 1)
+      ? `Sell ${t.qty === 1 ? "it" : `all ${t.qty}`} now at a limit of ${usd(sellLimit)}.`
+      : move === "sell-half"
+        ? `Sell ${half} of ${t.qty} now at a limit of ${usd(sellLimit)}; keep the rest with the same exits.`
+        : move === "trim"
+          ? `Sell ${third} of ${t.qty} now at a limit of ${usd(sellLimit)}.`
+          : `Hold ${t.qty === 1 ? "it" : `all ${t.qty}`}. Sell at ${usd(target)} or by ${by.text}; cut at ${usd(stop)}.`;
+  const base = {
+    reasons,
+    odds,
+    doubleOdds,
+    decayPerDay,
+    dte,
+    target,
+    stop,
+    targetPct: rules.target,
+    stopPct: rules.stop,
+    sellBy: by.text,
+  };
   const say = (
     action: Verdict["action"],
     move: Verdict["move"],
@@ -80,11 +111,32 @@ export function verdictOf(
     move,
     quality,
     call: callText,
+    doNow: orderFor(move),
     tone: quality === "bad" ? "down" : move === "keep" ? (quality === "good" ? "up" : "neutral") : quality === "good" ? "up" : "warn",
     headline,
     ...base,
   });
 
+  if (pnlPct >= rules.target && rules.target < 1)
+    return say(
+      "Take profit",
+      "sell",
+      "good",
+      "Good position, sell now",
+      `It hit the +${pct(rules.target, 0)} target (${usd(target)}). Take the ${usd(gain, 0)} now; short-dated options give gains back fast.`,
+    );
+  if (pastSellBy)
+    return up
+      ? say("Sell", "sell", "good", "Good position, sell now", `The hold window ended ${by.text}. Take the ${pct(pnlPct, 0)} gain before decay takes it.`)
+      : say("Sell", "sell", "bad", "Bad position, cut it", `The hold window ended ${by.text} and it is down ${pct(-pnlPct, 0)}. Holding longer only adds decay.`);
+  if (pnlPct <= -rules.stop)
+    return say(
+      "Sell",
+      "sell",
+      "bad",
+      "Bad position, cut it",
+      `It hit the stop (${usd(stop)}, -${pct(rules.stop, 0)}). Cutting keeps ${usd(value, 0)} for a better setup.`,
+    );
   if (pnlPct >= 1)
     return say(
       "Take profit",
@@ -160,8 +212,8 @@ export function verdictOf(
       "good",
       "Good position, keep it",
       withIt
-        ? `Up ${pct(pnlPct, 0)} with momentum on your side. Keep it; sell half at ${usd(base.target)} (double).`
-        : `Up ${pct(pnlPct, 0)} and no exit signal. Keep it; sell half at ${usd(base.target)} (double), sell all below ${usd(t.entryPrice)}.`,
+        ? `Up ${pct(pnlPct, 0)} with momentum on your side. Keep it until ${usd(target)} (+${pct(rules.target, 0)}) or ${by.text}.`
+        : `Up ${pct(pnlPct, 0)} and no exit signal. Keep it until ${usd(target)} (+${pct(rules.target, 0)}) or ${by.text}; sell if it drops back below ${usd(t.entryPrice)}.`,
     );
   if (odds >= 0.3 || withIt)
     return say(
@@ -169,13 +221,13 @@ export function verdictOf(
       "keep",
       "mixed",
       "Losing, but worth keeping open",
-      `Down ${pct(-pnlPct, 0)}, but there's a ${pct(odds, 0)} chance it finishes past break-even${withIt ? " and momentum is turning your way" : ""}. Keep it; cut it at ${usd(base.stop)} (half).`,
+      `Down ${pct(-pnlPct, 0)}, but there's a ${pct(odds, 0)} chance it finishes past break-even${withIt ? " and momentum is turning your way" : ""}. Keep it; cut at ${usd(stop)}, sell by ${by.text} at the latest.`,
     );
   return say(
     "Wait",
     "keep",
     "bad",
     "Losing and weak, consider cutting",
-    `Down ${pct(-pnlPct, 0)} with only ${pct(odds, 0)} odds of recovering${against ? " and momentum against you" : ""}. Cut it if it falls to ${usd(base.stop)}, or now if you need the capital.`,
+    `Down ${pct(-pnlPct, 0)} with only ${pct(odds, 0)} odds of recovering${against ? " and momentum against you" : ""}. Cut it at ${usd(stop)} or by ${by.text}, or now if you need the capital.`,
   );
 }

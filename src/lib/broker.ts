@@ -49,7 +49,10 @@ export async function brokerView(): Promise<BrokerView> {
 
   try {
     // SnapTrade syncs brokerages every few minutes; asking more often gains nothing
-    return await cached("broker", 60_000, async () => {
+    return await cached(
+      "broker",
+      60_000,
+      async () => {
       const list = (await api.accountInformation.listAllUserAccounts()).data.results as unknown as Rec[];
       const accounts: BrokerAccount[] = [];
       const options: BrokerOption[] = [];
@@ -90,8 +93,10 @@ export async function brokerView(): Promise<BrokerView> {
           });
         }
       }
-      return { configured: true, linked: accounts.length > 0, accounts, options };
-    });
+        return { configured: true, linked: accounts.length > 0, accounts, options };
+      },
+      { stale: true },
+    );
   } catch (e) {
     return { configured: true, linked: false, accounts: [], options: [], error: message(e) };
   }
@@ -114,12 +119,17 @@ type Fill = {
 };
 
 /** Executed option orders from every linked account, oldest first. */
-async function fills(api: NonNullable<ReturnType<typeof client>>): Promise<Fill[]> {
+async function fetchFills(api: NonNullable<ReturnType<typeof client>>, days: number): Promise<Fill[]> {
   const accounts = (await api.accountInformation.listAllUserAccounts()).data.results as unknown as Rec[];
   const out: Fill[] = [];
-  for (const a of accounts) {
-    const orders = (await api.accountInformation.getUserAccountOrders({ accountId: String(a.id), state: "executed", days: 365 }))
-      .data as unknown as Rec[];
+  const perAccount = await Promise.all(
+    accounts.map((a) =>
+      api.accountInformation
+        .getUserAccountOrders({ accountId: String(a.id), state: "executed", days })
+        .then((r) => r.data as unknown as Rec[]),
+    ),
+  );
+  for (const orders of perAccount) {
     for (const o of orders) {
       const sym = o.option_symbol as Rec | undefined;
       const qty = num(o.filled_quantity);
@@ -142,6 +152,23 @@ async function fills(api: NonNullable<ReturnType<typeof client>>): Promise<Fill[
     }
   }
   return out.sort((x, y) => x.at - y.at);
+}
+
+const FULL_EVERY = 6 * 3_600_000;
+
+/**
+ * Every executed option order, oldest first. The full year is fetched every 6 hours;
+ * in between only the last 3 days are fetched and merged by order id, which keeps a
+ * sync to a fraction of a second.
+ */
+async function fills(api: NonNullable<ReturnType<typeof client>>, force: boolean): Promise<Fill[]> {
+  const full = force || !sync.fills || Date.now() - sync.fullAt > FULL_EVERY;
+  const fresh = await fetchFills(api, full ? 365 : 3);
+  const byId = new Map(full ? [] : (sync.fills ?? []).map((x) => [x.id, x]));
+  for (const x of fresh) byId.set(x.id, x);
+  sync.fills = [...byId.values()].sort((a, b) => a.at - b.at);
+  if (full) sync.fullAt = Date.now();
+  return sync.fills;
 }
 
 /**
@@ -215,7 +242,7 @@ export function syncFromBroker(force = false): Promise<number> {
   if (!force && sync.last && Date.now() - sync.at < 60_000) return sync.last;
   sync.at = Date.now();
   sync.pending = (async () => {
-    const all = await fills(api);
+    const all = await fills(api, force);
     if (!all.length) return 0;
     const trades = await readTrades();
     const covered = new Set(all.map((f) => f.occ));
@@ -233,5 +260,6 @@ export function syncFromBroker(force = false): Promise<number> {
 }
 
 // on globalThis so the watcher and the routes share one sync schedule
-const gs = globalThis as { __strikeSync?: { at: number; last?: Promise<number>; pending?: Promise<number> } };
-const sync = (gs.__strikeSync ??= { at: 0 });
+type SyncState = { at: number; fullAt: number; fills?: Fill[]; last?: Promise<number>; pending?: Promise<number> };
+const gs = globalThis as { __strikeSync2?: SyncState };
+const sync: SyncState = (gs.__strikeSync2 ??= { at: 0, fullAt: 0 });

@@ -5,6 +5,7 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Tick } from "@/components/Tick";
+import { TradeInstruction } from "@/components/TradeInstruction";
 import { Button, Meter, Panel, PanelHeader, ticketHref } from "@/components/ui";
 import { contractLabel, dateLabel, pct, shortDate, signedPct, usd } from "@/lib/format";
 import type { Briefing, Checkpoint, Horizon, TrackBucket, TrackView } from "@/lib/types";
@@ -89,7 +90,9 @@ export default function PicksPage() {
               const live = data.live[p.symbol];
               const entry = p.contract.ask || p.contract.mid;
               return (
-                <li key={p.symbol} className={clsx("grid gap-4 border-b border-l-2 border-b-line/70 px-4 py-4 last:border-b-0 xl:grid-cols-[320px_minmax(0,1fr)_220px]", up ? "border-l-up" : "border-l-down")}>
+                <li key={p.symbol} className={clsx("border-b border-l-2 border-b-line/70 px-4 py-4 last:border-b-0", up ? "border-l-up" : "border-l-down")}>
+                  <TradeInstruction c={p.contract} horizon={p.horizon} budget={b.budget} paused={b.paused} className="mb-3" />
+                  <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_220px]">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="num w-5 text-[13px] text-faint">{p.rank}</span>
@@ -102,11 +105,8 @@ export default function PicksPage() {
                       </span>
                       <span className="text-[12px] text-muted">{HORIZON[p.horizon]}</span>
                     </div>
-                    <div className="mt-2 pl-7 text-[15px] font-medium">
-                      Buy {p.qty} × <span className={up ? "text-up" : "text-down"}>{contractLabel(p.contract)}</span>
-                    </div>
-                    <div className="num mt-0.5 pl-7 text-[12px] text-muted">
-                      {usd(entry)} each · {usd(p.cost, 0)} total · expires {dateLabel(p.contract.expiration)}
+                    <div className="num mt-1 pl-7 text-[12px] text-muted">
+                      {contractLabel(p.contract)} · expires {dateLabel(p.contract.expiration)}
                     </div>
                     <div className="mt-2 flex items-center gap-3 pl-7">
                       <Meter value={p.score} tone={up ? "up" : "down"} />
@@ -123,8 +123,7 @@ export default function PicksPage() {
                     ))}
                     <li className="flex gap-2 pt-1 text-fg">
                       <span className="mt-[7px] size-[3px] shrink-0 bg-fg" />
-                      Plan: sell half at {usd(p.target)} (+100%), cut at {usd(p.stop)} (−50%). {pct(p.contract.pop, 0)} odds the stock is past
-                      break-even at expiry.
+                      {pct(p.contract.pop, 0)} odds the stock is past break-even at expiry.
                     </li>
                   </ul>
 
@@ -145,6 +144,7 @@ export default function PicksPage() {
                     <Link href={ticketHref(p.contract)}>
                       <Button>Open ticket</Button>
                     </Link>
+                  </div>
                   </div>
                 </li>
               );
