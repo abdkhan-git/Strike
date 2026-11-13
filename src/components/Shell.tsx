@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Calculator, LogOut, Radar, Search, Sparkles, Target, Wallet } from "lucide-react";
+import { Calculator, Crosshair, FlaskConical, LogOut, Radar, Search, Sparkles, Target, Wallet } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -19,8 +19,10 @@ import { Toaster } from "./Toaster";
 
 const NAV = [
   { href: "/", label: "Scanner", icon: Radar },
+  { href: "/watch", label: "Watch", icon: Crosshair },
   { href: "/plan", label: "Plan", icon: Target },
   { href: "/positions", label: "Positions", icon: Wallet },
+  { href: "/lab", label: "Lab", icon: FlaskConical },
   { href: "/calculator", label: "Calculator", icon: Calculator },
 ];
 
@@ -210,11 +212,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* phones: the four pages as a tab bar */}
-      <nav aria-label="Main" className="glass fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-line pb-[env(safe-area-inset-bottom)] md:hidden">
+      <nav aria-label="Main" className="glass fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-line pb-[env(safe-area-inset-bottom)] md:hidden">
         {NAV.map(({ href, label, icon: Icon }) => {
           const on = active(href);
           return (
-            <Link key={href} href={href} aria-current={on ? "page" : undefined} className={clsx("flex h-14 flex-col items-center justify-center gap-1 text-[10.5px]", on ? "font-medium text-fg" : "text-faint")}>
+            <Link key={href} href={href} aria-current={on ? "page" : undefined} className={clsx("flex h-14 flex-col items-center justify-center gap-1 text-[10px]", on ? "font-medium text-fg" : "text-faint")}>
               <Icon size={18} strokeWidth={on ? 2.2 : 1.7} />
               {label}
             </Link>

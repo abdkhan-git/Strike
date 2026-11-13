@@ -1,8 +1,10 @@
 import { generateJson } from "./ai";
 import { brokerView } from "./broker";
+import { marketContext } from "./context";
 import { contractLabel, pct, signedPct, usd } from "./format";
 import { buyInstruction, horizonOfDte } from "./instruction";
 import { signals, symbolView } from "./market";
+import { openPaper } from "./paper";
 import { currentPlan } from "./plan";
 import { etDay as etDayOf } from "./session";
 import { readBriefings, readTheses, readTrades, writeBriefings, writeTheses } from "./store";
@@ -116,6 +118,7 @@ Decide like a professional:
 - Prefer the contract with the best odds of reaching its target before its sell-by time, not the cheapest one.
 - Choose at most the number of trades asked for. Choosing none is correct when nothing is strong enough: say so in "passed".
 - For each trade set "invalidation": the stock price that proves the thesis wrong (just beyond the key support for a bullish trade, or resistance for a bearish one, allowing for the ATR). It must be a level the stock is not already past.
+- "market" is the backdrop: the index regime, how much movement is priced in, and what is scheduled. A trade against a clear regime needs stronger evidence than one with it. A scheduled event (Fed decision, jobs report, earnings) before the sell-by time is a risk to name, and a reason to prefer the later expiry or to pass. When implied volatility is far above realized, the option is expensive: the stock has to move more than it has been moving just to break even.
 - "goal" in the account tells you what the user is working toward. It decides nothing about direction or quality: never choose a weaker setup, a shorter expiry or a further out-of-the-money strike because the account is behind its goal. Between two equally strong trades, prefer the one whose target gain covers more of "neededToday".
 - "conviction": 0-100, how sure you are this trade reaches its target before its sell-by time (70+ only when nearly every factor agrees and nothing threatens it).
 - "thesis": 2-3 plain sentences: why this direction, why now, what has to happen. "risks": the 1-3 things most likely to make it fail. "passed": one or two sentences on why the other finalists lost.
@@ -187,7 +190,7 @@ function byRule(fins: Finalist[], n: number): Chosen[] {
 
 /** Ranks today's candidates and returns the trade(s) worth making, sized to the plan. */
 export async function buildBriefing(): Promise<Briefing> {
-  const [plan, broker] = await Promise.all([currentPlan(), brokerView().catch(() => undefined)]);
+  const [plan, broker, ctx] = await Promise.all([currentPlan(), brokerView().catch(() => undefined), marketContext().catch(() => undefined)]);
   const style = styleOf(plan.settings.style);
   const cash = broker?.accounts.reduce((s, a) => s + (a.cash ?? 0), 0);
   // when the plan has paused trading, picks are still listed at base size so you can see them
@@ -221,6 +224,15 @@ export async function buildBriefing(): Promise<Briefing> {
         },
       },
       userHistory: "Lost most money on same-day expiries and by holding losers past the stop.",
+      market: ctx && {
+        regime: ctx.regime.label,
+        spyAnalysisScore: ctx.regime.score,
+        volatility: ctx.vol.label,
+        spyImpliedVol: pct(ctx.vol.atmIv, 0),
+        spyRealizedVol20d: ctx.vol.realized ? pct(ctx.vol.realized, 0) : undefined,
+        scheduledEvents: ctx.events.filter((e) => e.inDays <= 5).map((e) => `${e.date}: ${e.label}`),
+        cautions: ctx.cautions,
+      },
       finalists: fins.map((f) => ({
         symbol: f.a.symbol,
         price: f.a.price,
@@ -339,6 +351,7 @@ export async function runBriefing(): Promise<{ briefing: Briefing; title: string
   await writeBriefings([...all, briefing].slice(-60));
   await recordPicks(briefing.picks);
   await saveTheses(briefing);
+  await openPaper(briefing).catch((e) => console.warn("[paper] could not open paper trades:", e instanceof Error ? e.message : e));
 
   const lines = briefing.picks.map(
     (p) =>

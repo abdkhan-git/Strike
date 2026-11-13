@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import type { Alert, AlertSettings, Briefing, PlanSettings, Thesis, TrackRecord, Trade } from "./types";
+import type { Idea, PaperTrade } from "./desk";
 import type { UserAccount } from "./users";
 
 // Everything the app remembers lives in plain JSON files under data/ (git-ignored),
@@ -66,6 +67,14 @@ export const writeTheses = (rows: Thesis[]) => write("theses.json", rows);
 /** Every brokerage fill ever seen, so the trade log can always be rebuilt in full. */
 export const readFills = <T,>() => read<T[]>("fills.json", []);
 export const writeFills = (rows: unknown[]) => write("fills.json", rows);
+
+/** Trades the user is thinking about, judged live on the Watch page. */
+export const readWatch = () => read<Idea[]>("watch.json", []);
+export const writeWatch = (rows: Idea[]) => write("watch.json", rows);
+
+/** Every pick, bought on paper and managed by the exit rules. */
+export const readPaper = () => read<PaperTrade[]>("paper.json", []);
+export const writePaper = (rows: PaperTrade[]) => write("paper.json", rows);
 
 export const readUsers = () => read<UserAccount[]>("users.json", []);
 export const writeUsers = (rows: UserAccount[]) => write("users.json", rows);

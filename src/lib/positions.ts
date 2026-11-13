@@ -73,6 +73,9 @@ export async function tradeViews(): Promise<TradeView[]> {
       return {
         ...t,
         mark,
+        delta: c?.delta,
+        theta: c?.theta,
+        spot,
         pnl: (px - t.entryPrice) * 100 * t.qty,
         pnlPct: t.entryPrice > 0 ? px / t.entryPrice - 1 : 0,
         verdict:

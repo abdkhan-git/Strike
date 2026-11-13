@@ -168,6 +168,10 @@ export interface Trade {
 
 export interface TradeView extends Trade {
   mark?: number;
+  /** live per-share delta and daily theta of the contract, for the exposure view */
+  delta?: number;
+  theta?: number;
+  spot?: number;
   pnl: number;
   pnlPct: number;
   verdict?: Verdict;
@@ -455,7 +459,7 @@ export interface TrackView {
   recent: TrackRecord[];
 }
 
-export type AlertKind = "verdict" | "signal" | "risk" | "test" | "picks";
+export type AlertKind = "verdict" | "signal" | "risk" | "test" | "picks" | "watch";
 
 export interface Alert {
   id: string;

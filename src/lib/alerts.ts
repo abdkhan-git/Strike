@@ -1,11 +1,13 @@
+import { checkAll } from "./check";
 import { contractLabel, pct, usd } from "./format";
 import { signals } from "./market";
 import { latestBriefing, runBriefing } from "./picks";
+import { markPaper } from "./paper";
 import { currentPlan } from "./plan";
 import { tradeViews } from "./positions";
 import { etDay, session } from "./session";
 import { recordSignals, scoreTrack } from "./track";
-import { readAlerts, readAlertSettings, writeAlerts } from "./store";
+import { readAlerts, readAlertSettings, readWatch, writeAlerts } from "./store";
 import type { Alert, AlertSettings, AlertsView, Horizon } from "./types";
 
 /**
@@ -32,6 +34,8 @@ type State = {
   primed: boolean;
   checkedAt?: number;
   verdicts: Map<string, string>;
+  /** watchlist idea id -> last verdict seen */
+  watch: Map<string, string>;
   /** symbol|horizon|direction already alerted today */
   signalsSeen: Set<string>;
   day: string;
@@ -40,7 +44,7 @@ type State = {
 
 // On globalThis so a hot reload in development does not start a second timer. The version
 // resets the state (and stops the old timer) when this file's shape changes.
-const VERSION = 4;
+const VERSION = 5;
 const g = globalThis as { __strikeWatch?: State & { v?: number } };
 if (g.__strikeWatch && g.__strikeWatch.v !== VERSION) {
   clearInterval(g.__strikeWatch.timer);
@@ -50,6 +54,7 @@ const state: State = (g.__strikeWatch ??= {
   v: VERSION,
   primed: false,
   verdicts: new Map(),
+  watch: new Map(),
   signalsSeen: new Set(),
   day: "",
   riskSent: false,
@@ -181,6 +186,27 @@ async function runCheck() {
           out.push({ kind: "picks", tone: "neutral", title: title.replace(/^Strike:/, "Picks updated:"), body, href: "/plan" });
       }
     }
+
+    // watchlist: tell the user the moment an idea they queued lines up
+    const ideas = await readWatch();
+    if (ideas.length && sess === "Market open") {
+      for (const c of await checkAll(ideas)) {
+        const before = state.watch.get(c.idea.id);
+        state.watch.set(c.idea.id, c.verdict);
+        if (!state.primed || c.verdict !== "go" || before === "go" || before === undefined) continue;
+        out.push({
+          kind: "watch",
+          tone: c.idea.type === "call" ? "up" : "down",
+          title: `Go: ${c.idea.symbol} ${c.idea.strike}${c.idea.type === "call" ? "C" : "P"} lines up (score ${c.score})`,
+          body: c.order?.text ?? c.action,
+          href: "/watch",
+        });
+      }
+    }
+    for (const id of state.watch.keys()) if (!ideas.some((i) => i.id === id)) state.watch.delete(id);
+
+    // paper lab: manage every pick by the exit rules
+    await markPaper().catch((e) => console.warn("[paper] mark failed:", e instanceof Error ? e.message : e));
 
     // track record: log today's strong signals and score anything that has come due
     await recordSignals((await signals()).signals);

@@ -208,6 +208,7 @@ export default function PositionsPage() {
         </Panel>
 
         <div className="space-y-5">
+          {s.open.length > 0 && <Exposure open={s.open} />}
           <BrokerPanel onSynced={reload} />
           {s.closed.length >= 5 && <Breakdown closed={s.closed} />}
           <Panel>
@@ -396,6 +397,68 @@ function PositionRow({
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * What the open positions add up to: how much they gain or lose if each stock moves 1%,
+ * what a day of standing still costs, and whether they are really one bet.
+ */
+function Exposure({ open }: { open: TradeView[] }) {
+  const value = open.reduce((s, t) => s + (t.mark ?? t.entryPrice) * 100 * t.qty, 0);
+  const by = new Map<string, { perPct: number; value: number }>();
+  for (const t of open) {
+    const row = by.get(t.underlying) ?? { perPct: 0, value: 0 };
+    // dollars gained per +1% in the stock: delta × 100 shares × contracts × 1% of the price
+    row.perPct += (t.delta ?? 0) * 100 * t.qty * (t.spot ?? 0) * 0.01;
+    row.value += (t.mark ?? t.entryPrice) * 100 * t.qty;
+    by.set(t.underlying, row);
+  }
+  const rows = [...by.entries()].sort((a, b) => Math.abs(b[1].perPct) - Math.abs(a[1].perPct));
+  const net = rows.reduce((s, [, r]) => s + r.perPct, 0);
+  const theta = open.reduce((s, t) => s + Math.abs(t.theta ?? 0) * 100 * t.qty, 0);
+  const biggest = rows.reduce((a, b) => (b[1].value > a[1].value ? b : a), rows[0]);
+  const oneWay = rows.length > 1 && rows.every(([, r]) => Math.sign(r.perPct) === Math.sign(net)) && Math.abs(net) > 0;
+  const scale = Math.max(1, ...rows.map(([, r]) => Math.abs(r.perPct)));
+
+  return (
+    <Panel>
+      <PanelHeader title="Exposure" sub="What your open positions add up to" />
+      <div className="grid grid-cols-2 gap-px bg-line">
+        <div className="bg-panel px-5 py-4">
+          <div className="text-[12px] text-muted">If everything moves +1%</div>
+          <div className={clsx("num mt-1 text-[19px] font-semibold tracking-[-0.03em]", tone(net))}>{signedUsd(net, 0)}</div>
+          <div className="text-[11.5px] text-faint">{net > 0 ? "net bullish" : net < 0 ? "net bearish" : "flat"}</div>
+        </div>
+        <div className="bg-panel px-5 py-4">
+          <div className="text-[12px] text-muted">A day of standing still</div>
+          <div className="num mt-1 text-[19px] font-semibold tracking-[-0.03em] text-down">−{usd(theta, 0)}</div>
+          <div className="text-[11.5px] text-faint">{value > 0 ? `${pct(theta / value, 1)} of ${usd(value, 0)} open` : "time decay"}</div>
+        </div>
+      </div>
+      <ul className="space-y-2.5 border-t border-line px-5 py-4">
+        {rows.map(([sym, r]) => (
+          <li key={sym} className="grid grid-cols-[52px_minmax(0,1fr)_72px] items-center gap-3 text-[12.5px]">
+            <span className="font-semibold">{sym}</span>
+            <span className="relative h-1.5 rounded-full bg-line-strong">
+              <span
+                className={clsx("absolute inset-y-0 rounded-full", r.perPct >= 0 ? "left-1/2 bg-up" : "right-1/2 bg-down")}
+                style={{ width: `${(Math.abs(r.perPct) / scale) * 50}%` }}
+              />
+              <span className="absolute inset-y-[-3px] left-1/2 w-px bg-faint" />
+            </span>
+            <span className={clsx("num text-right", tone(r.perPct))}>{signedUsd(r.perPct, 0)}</span>
+          </li>
+        ))}
+      </ul>
+      {(oneWay || (biggest && value > 0 && biggest[1].value / value > 0.6 && rows.length > 1)) && (
+        <p className="border-t border-line px-5 py-3 text-[12px] leading-relaxed text-warn">
+          {oneWay
+            ? `Every position leans ${net > 0 ? "bullish" : "bearish"}: a market move the other way hits all of them at once. Treat this as one bet when sizing the next trade.`
+            : `${biggest[0]} is ${pct(biggest[1].value / value, 0)} of what you have open.`}
+        </p>
+      )}
+    </Panel>
   );
 }
 

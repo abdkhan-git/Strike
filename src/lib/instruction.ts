@@ -28,7 +28,7 @@ export interface ExitRules {
 }
 
 const RULES: Record<Horizon, ExitRules> = {
-  eod: { target: 0.4, stop: 0.7, holdDays: 0, outBefore: 0, sellAt: 15 * 60 + 30 },
+  eod: { target: 0.4, stop: 0.3, holdDays: 0, outBefore: 0, sellAt: 15 * 60 + 30 },
   week: { target: 0.75, stop: 0.5, holdDays: 2, outBefore: 0, sellAt: 15 * 60 },
   month: { target: 1, stop: 0.5, holdDays: 10, outBefore: 7, sellAt: 15 * 60 + 30 },
   quarter: { target: 1, stop: 0.5, holdDays: 15, outBefore: 21, sellAt: 15 * 60 + 30 },
