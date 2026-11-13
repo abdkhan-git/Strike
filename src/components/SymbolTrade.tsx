@@ -28,7 +28,7 @@ export function SymbolTrade({ symbol, callShare, outlook }: { symbol: string; ca
 
   if (best && score !== undefined && !agrees)
     return (
-      <Panel className="border-l-2 border-l-warn px-4 py-3">
+      <Panel tone="warn" className="px-5 py-4">
         <div className="text-[15px] font-semibold tracking-tight">No trade in {symbol} right now: the evidence is split.</div>
         <p className="mt-1 text-[13px] text-muted">
           Options flow leans {best.direction} (conviction {best.conviction}), but the full analysis is {score > 0 ? "+" : ""}
@@ -40,7 +40,7 @@ export function SymbolTrade({ symbol, callShare, outlook }: { symbol: string; ca
 
   if (!best)
     return (
-      <Panel className="border-l-2 border-l-line-strong px-4 py-3">
+      <Panel tone="neutral" className="px-5 py-4">
         <div className="text-[15px] font-semibold tracking-tight">No trade in {symbol} right now.</div>
         <p className="mt-1 text-[13px] text-muted">
           Options money is not lined up on one side ({Math.round(callShare * 100)}% of premium in calls), so there is no edge to buy into.
@@ -54,9 +54,9 @@ export function SymbolTrade({ symbol, callShare, outlook }: { symbol: string; ca
   const fighting = outlook && ((up && outlook.lean === "down") || (!up && outlook.lean === "up"));
 
   return (
-    <Panel className={clsx("border-l-2", up ? "border-l-up" : "border-l-down")}>
+    <Panel tone={up ? "up" : "down"}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3">
-        <span className="cap !text-muted">The trade</span>
+        <span className="text-[13px] font-semibold">The trade</span>
         <span className={clsx("flex items-center gap-0.5 text-[13px] font-semibold", up ? "text-up" : "text-down")}>
           <Arrow size={15} strokeWidth={2} />
           {up ? "Bullish" : "Bearish"} {symbol} for {HORIZON[best.horizon]}
@@ -80,7 +80,7 @@ export function SymbolTrade({ symbol, callShare, outlook }: { symbol: string; ca
         <ul className="mt-2 grid gap-x-6 gap-y-0.5 text-[12px] leading-snug text-muted md:grid-cols-2">
           {best.reasons.map((r) => (
             <li key={r} className="flex gap-2">
-              <span className="mt-[7px] size-[3px] shrink-0 bg-faint" />
+              <span className="mt-[7px] size-1 shrink-0 rounded-full bg-faint" />
               {r}
             </li>
           ))}

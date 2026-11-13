@@ -3,7 +3,7 @@ import { signals } from "./market";
 import { latestBriefing, runBriefing } from "./picks";
 import { currentPlan } from "./plan";
 import { tradeViews } from "./positions";
-import { session } from "./session";
+import { etDay, session } from "./session";
 import { recordSignals, scoreTrack } from "./track";
 import { readAlerts, readAlertSettings, writeAlerts } from "./store";
 import type { Alert, AlertSettings, AlertsView, Horizon } from "./types";
@@ -102,7 +102,7 @@ export function checkNow(): Promise<void> {
 async function runCheck() {
   try {
     const settings = await alertSettings();
-    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const today = etDay();
     if (today !== state.day) {
       state.day = today;
       state.signalsSeen.clear();
@@ -178,7 +178,7 @@ async function runCheck() {
         const before = last.picks.map((p) => p.symbol).join(",");
         const { briefing, title, body } = await runBriefing();
         if (briefing.picks.map((p) => p.symbol).join(",") !== before)
-          out.push({ kind: "picks", tone: "neutral", title: title.replace("Strike picks", "Picks updated"), body, href: "/plan" });
+          out.push({ kind: "picks", tone: "neutral", title: title.replace(/^Strike:/, "Picks updated:"), body, href: "/plan" });
       }
     }
 

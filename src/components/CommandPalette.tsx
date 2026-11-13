@@ -54,7 +54,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[14vh] backdrop-blur-[3px]"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div role="dialog" aria-label="Search tickers" className="rise w-full max-w-lg border border-line-strong bg-panel shadow-2xl shadow-black/60">
+      <div role="dialog" aria-label="Search tickers" className="rise glass w-full max-w-lg overflow-hidden rounded-2xl border border-line-strong shadow-2xl shadow-black/60">
         <div className="flex h-12 items-center gap-3 border-b border-line px-4">
           <Search size={15} className="text-faint" />
           <input
@@ -85,7 +85,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
               <button
                 onMouseEnter={() => setAt(i)}
                 onClick={(e) => go(item, e.shiftKey)}
-                className={clsx("flex h-10 w-full items-center gap-3 px-4 text-left", i === at && "bg-raised")}
+                className={clsx("flex h-11 w-full items-center gap-3 !rounded-none px-4 text-left", i === at && "bg-hover")}
               >
                 <span className="w-14 font-semibold">{item.symbol}</span>
                 <span className="min-w-0 flex-1 truncate text-muted">{item.name}</span>

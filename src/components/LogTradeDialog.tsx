@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { contractLabel, usd } from "@/lib/format";
 import type { OptType } from "@/lib/types";
+import { toast } from "./Toaster";
 import { Button } from "./ui";
 
 export interface Loggable {
@@ -40,12 +41,15 @@ export function LogTradeDialog({ contract, onClose }: { contract: Loggable; onCl
       body: JSON.stringify({ ...contract, qty: Number(qty), entryPrice: Number(price), note }),
     });
     setBusy(false);
-    if (res.ok) onClose(true);
+    if (res.ok) {
+      toast(`Logged ${qty} × ${contract.underlying} at ${Number(price).toFixed(2)}`, "up");
+      onClose(true);
+    }
     else setError((await res.json()).error ?? "Could not save the trade");
   }
 
   const field =
-    "h-8 w-full border border-line bg-bg px-2.5 text-[13px] focus:border-line-strong focus:outline-none";
+    "h-9 w-full rounded-lg border border-line-strong bg-transparent px-3 text-[13px] transition-colors hover:border-faint focus:border-accent focus:outline-none";
 
   return (
     <div
@@ -56,7 +60,7 @@ export function LogTradeDialog({ contract, onClose }: { contract: Loggable; onCl
         onSubmit={save}
         role="dialog"
         aria-label="Log purchase"
-        className="w-full max-w-sm border border-line-strong bg-panel shadow-2xl"
+        className="rise glass w-full max-w-sm overflow-hidden rounded-2xl border border-line-strong shadow-2xl shadow-black/50"
       >
         <div className="border-b border-line px-4 py-3">
           <div className="text-[12px] text-muted">Log purchase</div>

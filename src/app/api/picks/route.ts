@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { contractOf, provider } from "@/lib/market";
 import { readTheses } from "@/lib/store";
 import { analyze } from "@/lib/thesis";
-import { latestBriefing, runBriefing } from "@/lib/picks";
+import { buildBriefing, latestBriefing, runBriefing } from "@/lib/picks";
 import { trackView } from "@/lib/track";
 import type { Enriched, Verdict } from "@/lib/types";
 import { verdictOf } from "@/lib/verdict";
@@ -66,10 +66,13 @@ export async function GET() {
   }
 }
 
-/** `?action=run` re-ranks today's picks now. */
+/** `?action=run` re-ranks today's picks now; `?action=preview` does the same without saving anything. */
 export async function POST(req: NextRequest) {
-  if (req.nextUrl.searchParams.get("action") !== "run") return Response.json({ error: "Unknown action" }, { status: 400 });
+  const action = req.nextUrl.searchParams.get("action");
+  if (action !== "run" && action !== "preview") return Response.json({ error: "Unknown action" }, { status: 400 });
   try {
+    // `preview` runs the whole pipeline but saves nothing: no briefing, no track record, no theses
+    if (action === "preview") return Response.json({ briefing: await buildBriefing(), preview: true });
     const { briefing } = await runBriefing();
     return Response.json({ briefing });
   } catch (e) {

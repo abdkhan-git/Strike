@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { LogTradeDialog, type Loggable } from "@/components/LogTradeDialog";
+import { Heatmap, MarketPulse } from "@/components/MarketPulse";
 import { SignalsRail } from "@/components/SignalsRail";
 import { TradeInstruction, useBudget } from "@/components/TradeInstruction";
-import { Button, CatalystTag, Change, FlowBar, Meter, Panel, Segmented, Stat, StatStrip, Tabs, ticketHref } from "@/components/ui";
+import { Badge, Button, CatalystTag, Change, FlowBar, Meter, Page, PageError, PageHeader, PageSkeleton, Panel, Segmented, Tabs, ticketHref } from "@/components/ui";
 import { compact, contractLabel, pct, usd } from "@/lib/format";
 import type { ScanResult } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
 
 type Filter = "all" | "earnings" | "calls" | "puts";
-type View = "symbols" | "unusual";
+type View = "symbols" | "unusual" | "map";
 
 export default function ScannerPage() {
   const router = useRouter();
@@ -30,51 +31,40 @@ export default function ScannerPage() {
     return all;
   }, [data, filter]);
 
-  if (!data)
-    return <div className="p-6 text-muted">{error ? <span className="text-down">{error}</span> : "Scanning the market…"}</div>;
+  if (!data) return error ? <PageError message={error} /> : <PageSkeleton label="Scanning the market…" />;
 
   const all = data.rows;
-  const callHeavy = all.filter((r) => r.flowBias > 0.15).length;
-  const putHeavy = all.filter((r) => r.flowBias < -0.15).length;
   const earnings = all.filter((r) => r.catalyst?.kind === "earnings").length;
-  const lead = data.top[0];
 
   return (
-    <div className="mx-auto max-w-[1760px] space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-[18px] font-semibold tracking-tight">Scanner</h1>
-          <p className="mt-0.5 text-muted">Names with a catalyst, ranked by how unusual and how tradable today&apos;s option flow is.</p>
-        </div>
-        <div className="num text-[11.5px] text-faint">
-          {new Date(data.asOf).toLocaleTimeString("en-US")} · refreshes every 5s
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        eyebrow={
+          <>
+            <span className="pulse-dot size-1.5 rounded-full bg-up" /> Live · {new Date(data.asOf).toLocaleTimeString("en-US")} · {all.length} symbols, {earnings} with
+            earnings inside two weeks
+          </>
+        }
+        title="Scanner"
+        subtitle="Every name with a catalyst, ranked by how unusual and how tradable today's option flow is. Signals turn the strongest into exact orders."
+      />
 
-      <StatStrip>
-        <Stat label="Symbols scanned" value={String(all.length)} sub={`${earnings} with earnings inside 2 weeks`} />
-        <Stat label="Call-heavy flow" value={String(callHeavy)} sub="over 57% of premium in calls" tone="up" />
-        <Stat label="Put-heavy flow" value={String(putHeavy)} sub="over 57% of premium in puts" tone="down" />
-        <Stat
-          label="Most unusual contract"
-          value={lead ? `${lead.underlying} ${contractLabel(lead)}` : "—"}
-          sub={lead ? `${lead.volOi.toFixed(1)}× open interest traded today` : undefined}
-        />
-      </StatStrip>
+      <MarketPulse rows={all} lead={data.top[0]} />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel className="min-w-0">
-          <div className="flex h-10 items-stretch justify-between gap-3 border-b border-line px-4">
+          <div className="flex h-12 items-stretch justify-between gap-3 border-b border-line px-5">
             <Tabs
               value={view}
               onChange={setView}
               options={[
                 { value: "symbols", label: "Symbols", count: all.length },
                 { value: "unusual", label: "Unusual contracts", count: data.top.length },
+                { value: "map", label: "Heatmap" },
               ]}
             />
             {view === "symbols" && (
-              <div className="flex items-center">
+              <div className="hidden items-center sm:flex">
                 <Segmented
                   value={filter}
                   onChange={setFilter}
@@ -89,11 +79,13 @@ export default function ScannerPage() {
             )}
           </div>
 
-          {view === "symbols" ? (
+          {view === "map" ? (
+            <Heatmap rows={all} />
+          ) : view === "symbols" ? (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] whitespace-nowrap text-left">
+              <table className="w-full min-w-[860px] whitespace-nowrap text-left">
                 <thead>
-                  <tr className="cap [&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-4 [&>th]:font-medium">
+                  <tr className="cap [&>th]:h-9 [&>th]:border-b [&>th]:border-line [&>th]:px-5 [&>th]:font-medium">
                     <th>Symbol</th>
                     <th className="text-right">Price</th>
                     <th>Catalyst</th>
@@ -110,11 +102,11 @@ export default function ScannerPage() {
                     <tr
                       key={r.quote.symbol}
                       onClick={() => router.push(`/s/${r.quote.symbol}`)}
-                      className="cursor-pointer border-b border-line/70 transition-colors last:border-0 hover:bg-raised/70 [&>td]:h-11 [&>td]:px-4"
+                      className="cursor-pointer border-b border-line transition-colors last:border-0 hover:bg-hover [&>td]:h-[52px] [&>td]:px-5"
                     >
                       <td>
                         <div className="font-semibold">{r.quote.symbol}</div>
-                        <div className="max-w-36 truncate text-[12px] text-muted">{r.quote.name}</div>
+                        <div className="max-w-40 truncate text-[12px] text-faint">{r.quote.name}</div>
                       </td>
                       <td className="text-right">
                         <div className="num">{usd(r.quote.price)}</div>
@@ -133,7 +125,7 @@ export default function ScannerPage() {
                         {r.top[0] ? (
                           <>
                             <div className={r.top[0].type === "call" ? "text-up" : "text-down"}>{contractLabel(r.top[0])}</div>
-                            <div className="num text-[12px] text-muted">
+                            <div className="num text-[12px] text-faint">
                               {compact(r.top[0].volume)} vol · {r.top[0].volOi.toFixed(1)}× OI
                             </div>
                           </>
@@ -148,7 +140,7 @@ export default function ScannerPage() {
                   ))}
                   {!rows.length && (
                     <tr>
-                      <td colSpan={9} className="h-24 text-center text-muted">
+                      <td colSpan={9} className="h-28 text-center text-muted">
                         Nothing matches this filter right now.
                       </td>
                     </tr>
@@ -157,11 +149,11 @@ export default function ScannerPage() {
               </table>
             </div>
           ) : (
-            <ul>
+            <ul className="divide-y divide-line">
               {data.top.map((c) => (
-                <li key={c.occ} className="border-b border-line/70 px-4 py-3 last:border-0">
+                <li key={c.occ} className="px-5 py-4">
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                    <Link href={`/s/${c.underlying}`} className="w-44 text-[13.5px] font-semibold hover:underline">
+                    <Link href={`/s/${c.underlying}`} className="w-44 text-[14px] font-semibold hover:underline">
                       {c.underlying} <span className={c.type === "call" ? "text-up" : "text-down"}>{contractLabel(c)}</span>
                     </Link>
                     <div className="num flex flex-1 flex-wrap gap-x-5 text-[12px] text-muted">
@@ -188,23 +180,23 @@ export default function ScannerPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="mt-2">
+                  <div className="mt-3">
                     {c.dte < 1 ? (
-                      <p className="text-[12px] text-warn">Same-day expiry: no order. Your history loses most on these.</p>
+                      <p className="text-[12.5px] text-warn">Same-day expiry: no order. Your history loses most on these.</p>
                     ) : c.lastPos <= 0.3 ? (
-                      <p className="text-[12px] text-muted">Prints are at the bid, so this volume looks like selling. Not a buy signal.</p>
+                      <p className="text-[12.5px] text-muted">Prints are at the bid, so this volume looks like selling. Not a buy signal.</p>
                     ) : (
-                      <TradeInstruction c={c} budget={budget} compact className="border-l-2 border-line-strong pl-3" />
+                      <TradeInstruction c={c} budget={budget} compact className="rounded-xl bg-raised/60 px-3.5 py-2.5" />
                     )}
                   </div>
                   {(c.why || c.ai) && (
-                    <div className="mt-2 max-w-[90ch] space-y-1 border-l border-line-strong pl-3 text-[12.5px] leading-snug">
+                    <div className="mt-3 max-w-[90ch] space-y-1.5 text-[12.5px] leading-relaxed">
                       {c.why && <p className="text-muted">{c.why}</p>}
                       {c.ai && (
                         <p>
-                          <span className="cap mr-2 border border-line-strong px-1 !text-accent" title={`Written by ${c.ai.model} from recent headlines`}>
-                            News · {c.ai.model}
-                          </span>
+                          <Badge tone="accent" className="mr-2" title={`Written by ${c.ai.model} from recent headlines`}>
+                            News
+                          </Badge>
                           {c.ai.line}
                         </p>
                       )}
@@ -220,6 +212,6 @@ export default function ScannerPage() {
       </div>
 
       {logging && <LogTradeDialog contract={logging} onClose={() => setLogging(null)} />}
-    </div>
+    </Page>
   );
 }

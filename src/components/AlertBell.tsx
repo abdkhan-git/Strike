@@ -10,10 +10,10 @@ import { usePoll } from "@/lib/usePoll";
 import { Button } from "./ui";
 
 const TONE: Record<Alert["tone"], string> = {
-  up: "border-l-up",
-  down: "border-l-down",
-  warn: "border-l-warn",
-  neutral: "border-l-line-strong",
+  up: "edge-up",
+  down: "edge-down",
+  warn: "edge-warn",
+  neutral: "edge-mute",
 };
 
 /** Bell in the top bar: unread count, alert feed, desktop notifications and alert settings. */
@@ -80,22 +80,22 @@ export function AlertBell() {
           if (!open && unread) void post("read");
         }}
         className={clsx(
-          "relative grid size-7 place-items-center border transition-colors",
-          open ? "border-muted text-fg" : "border-line-strong text-muted hover:border-muted hover:text-fg",
+          "relative grid size-8 place-items-center !rounded-full transition-colors",
+          open ? "bg-raised text-fg" : "text-muted hover:bg-hover hover:text-fg",
         )}
       >
-        <Bell size={14} />
+        <Bell size={15} />
         {unread > 0 && (
-          <span className="num absolute -right-1.5 -top-1.5 grid h-4 min-w-4 place-items-center bg-down px-1 text-[10px] font-semibold text-white">
+          <span className="num absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-down px-1 text-[10px] font-semibold text-white">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
       </button>
 
       {open && data && (
-        <div className="rise absolute right-0 top-9 z-40 w-[400px] border border-line-strong bg-panel shadow-2xl shadow-black/60">
+        <div className="rise glass absolute right-0 top-11 z-40 w-[min(400px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-line-strong shadow-2xl shadow-black/60">
           <div className="flex h-10 items-center justify-between border-b border-line px-4">
-            <span className="cap !text-muted">Alerts</span>
+            <span className="text-[13px] font-semibold">Alerts</span>
             <span className="text-[11px] text-faint">
               {data.watching ? `checked ${data.checkedAt ? ago(data.checkedAt) : "soon"} · every minute in market hours` : "watcher not running"}
             </span>
@@ -103,13 +103,13 @@ export function AlertBell() {
 
           <ul className="max-h-[360px] overflow-auto">
             {data.alerts.map((a) => (
-              <li key={a.id} className="border-b border-line/70 last:border-0">
+              <li key={a.id} className="border-b border-line last:border-0">
                 <button
                   onClick={() => {
                     if (a.href) router.push(a.href);
                     setOpen(false);
                   }}
-                  className={clsx("block w-full border-l-2 px-4 py-2.5 text-left transition-colors hover:bg-raised/70", TONE[a.tone])}
+                  className={clsx("edge block w-full !rounded-none px-5 py-3 text-left transition-colors hover:bg-hover", TONE[a.tone])}
                 >
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="text-[12.5px] font-medium">{a.title}</span>
@@ -135,7 +135,7 @@ export function AlertBell() {
               <select
                 value={data.settings.signalMin}
                 onChange={(e) => save({ signalMin: Number(e.target.value) })}
-                className="num h-7 border border-line-strong bg-panel px-2 text-[12px] focus:outline-none"
+                className="num h-7 border border-line-strong bg-raised px-2 text-[12px] focus:outline-none"
               >
                 <option value={0}>off</option>
                 {[70, 75, 80, 85, 90].map((n) => (
@@ -187,9 +187,9 @@ function Toggle({ label, on, set, disabled }: { label: string; on: boolean; set:
         aria-checked={on}
         disabled={disabled}
         onClick={() => set(!on)}
-        className={clsx("relative h-4 w-7 shrink-0 border transition-colors", on ? "border-up bg-up/25" : "border-line-strong bg-transparent")}
+        className={clsx("relative h-5 w-9 shrink-0 !rounded-full transition-colors", on ? "bg-up" : "bg-line-strong")}
       >
-        <span className={clsx("absolute top-[2px] size-2.5 transition-all", on ? "left-[14px] bg-up" : "left-[2px] bg-muted")} />
+        <span className={clsx("absolute top-[2px] size-4 rounded-full bg-white shadow transition-all", on ? "left-[18px]" : "left-[2px]")} />
       </button>
     </label>
   );

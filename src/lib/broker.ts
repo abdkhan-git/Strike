@@ -1,6 +1,6 @@
 import { Snaptrade, SnaptradeAuth } from "snaptrade-typescript-sdk";
 import { cached } from "./cache";
-import { readTrades, writeTrades } from "./store";
+import { readFills, readTrades, writeFills, writeTrades } from "./store";
 import type { BrokerAccount, BrokerOption, BrokerView, Trade } from "./types";
 
 /**
@@ -162,12 +162,17 @@ const FULL_EVERY = 6 * 3_600_000;
  * sync to a fraction of a second.
  */
 async function fills(api: NonNullable<ReturnType<typeof client>>, force: boolean): Promise<Fill[]> {
-  const full = force || !sync.fills || Date.now() - sync.fullAt > FULL_EVERY;
+  // every fill ever seen is kept in data/fills.json: SnapTrade sometimes returns a shorter
+  // history, and a short answer must never shrink the log
+  sync.fills ??= await readFills<Fill>();
+  const full = force || !sync.fullAt || Date.now() - sync.fullAt > FULL_EVERY;
   const fresh = await fetchFills(api, full ? 365 : 3);
-  const byId = new Map(full ? [] : (sync.fills ?? []).map((x) => [x.id, x]));
+  const byId = new Map(sync.fills.map((x) => [x.id, x]));
+  const before = byId.size;
   for (const x of fresh) byId.set(x.id, x);
   sync.fills = [...byId.values()].sort((a, b) => a.at - b.at);
   if (full) sync.fullAt = Date.now();
+  if (full || byId.size !== before) await writeFills(sync.fills);
   return sync.fills;
 }
 

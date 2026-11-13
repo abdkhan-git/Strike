@@ -7,7 +7,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { NewsPanel } from "@/components/NewsPanel";
-import { Button, CatalystTag, Change, Chip, Panel, PanelHeader, Segmented } from "@/components/ui";
+import { Button, CatalystTag, Change, Chip, PageHeader, Panel, PanelHeader, Segmented } from "@/components/ui";
+import { toast } from "@/components/Toaster";
 import { breakeven, bsPrice, popLong } from "@/lib/bs";
 import { compact, pct, shortDate, signedPct, signedUsd, strikeLabel, usd } from "@/lib/format";
 import type { Enriched, OptType, ScanResult, SymbolView } from "@/lib/types";
@@ -53,7 +54,7 @@ function TickerBox({ initial = "", autoFocus }: { initial?: string; autoFocus?: 
         onChange={(e) => setV(e.target.value.toUpperCase())}
         placeholder="Ticker"
         aria-label="Ticker"
-        className="h-9 w-28 border border-line-strong bg-transparent px-3 text-[15px] font-semibold tracking-tight placeholder:font-normal placeholder:text-faint focus:border-muted focus:outline-none"
+        className="h-10 w-32 rounded-xl border border-line-strong bg-transparent px-3.5 text-[15px] font-semibold tracking-tight transition-colors placeholder:font-normal placeholder:text-faint hover:border-faint focus:border-accent focus:outline-none"
       />
     </form>
   );
@@ -62,23 +63,22 @@ function TickerBox({ initial = "", autoFocus }: { initial?: string; autoFocus?: 
 function Picker() {
   const { data } = usePoll<ScanResult>("/api/scan", 15_000);
   return (
-    <div className="mx-auto max-w-[900px] space-y-5 p-4 md:p-6">
-      <div>
-        <h1 className="text-[18px] font-semibold tracking-tight">Profit calculator</h1>
-        <p className="mt-0.5 text-muted">
-          Pick a stock, tap a contract in its chain, and see what the position is worth at any price and date. Prices fill in live.
-        </p>
-      </div>
+    <div className="mx-auto max-w-[1000px] space-y-6 px-4 pb-24 pt-10 md:px-8 md:pb-12">
+      <PageHeader
+        eyebrow="Order ticket"
+        title="Profit calculator"
+        subtitle="Pick a stock, tap a contract in its chain, and see what the position is worth at any price and date. Prices fill in live."
+      />
       <TickerBox autoFocus />
       {data && (
         <div>
           <div className="cap mb-2">Most active flow right now</div>
-          <div className="grid grid-cols-2 gap-px border border-line bg-line sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {data.rows.slice(0, 12).map((r) => (
               <Link
                 key={r.quote.symbol}
                 href={`/calculator?sym=${r.quote.symbol}`}
-                className="bg-panel px-4 py-3 transition-colors hover:bg-raised"
+                className="rounded-2xl border border-line bg-panel px-4 py-3.5 transition-colors hover:border-line-strong"
               >
                 <div className="flex items-baseline justify-between">
                   <span className="font-semibold">{r.quote.symbol}</span>
@@ -94,7 +94,7 @@ function Picker() {
   );
 }
 
-const th = "sticky top-0 z-10 h-8 bg-panel px-3 font-medium shadow-[inset_0_-1px_0_var(--color-line)]";
+const th = "sticky top-0 z-10 h-8 bg-panel-solid px-3 font-medium shadow-[inset_0_-1px_0_var(--color-line)]";
 
 function Ticket({ symbol, init }: { symbol: string; init: { type: OptType; strike?: number; exp?: string } }) {
   const [exp, setExp] = useState(init.exp);
@@ -144,7 +144,7 @@ function Ticket({ symbol, init }: { symbol: string; init: { type: OptType; strik
 
   if (!data)
     return (
-      <div className="mx-auto max-w-[1760px] space-y-4 p-4 md:p-6">
+      <div className="mx-auto max-w-[1680px] space-y-5 px-4 pb-24 pt-6 md:px-8 md:pb-12 md:pt-9">
         <TickerBox initial={symbol} />
         <div className="text-muted">{error ? <span className="text-down">{error}</span> : `Loading ${symbol}…`}</div>
       </div>
@@ -159,7 +159,7 @@ function Ticket({ symbol, init }: { symbol: string; init: { type: OptType; strik
   };
 
   return (
-    <div className="mx-auto max-w-[1760px] space-y-4 p-4 md:p-6">
+    <div className="mx-auto max-w-[1680px] space-y-5 px-4 pb-24 pt-6 md:px-8 md:pb-12 md:pt-9">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <TickerBox initial={symbol} />
         <div className="flex items-baseline gap-3">
@@ -235,8 +235,8 @@ function Ticket({ symbol, init }: { symbol: string; init: { type: OptType; strik
                           data-selected={on}
                           onClick={() => choose(c)}
                           className={clsx(
-                            "cursor-pointer border-b border-line/70 transition-colors [&>td]:h-9 [&>td]:px-3",
-                            on ? "bg-raised" : "hover:bg-raised/60",
+                            "cursor-pointer border-b border-line transition-colors [&>td]:h-9 [&>td]:px-3",
+                            on ? "bg-raised" : "hover:bg-hover",
                           )}
                         >
                           <td className={clsx("border-l-2 text-left font-medium", on ? "border-l-fg" : "border-l-transparent")}>
@@ -252,7 +252,7 @@ function Ticket({ symbol, init }: { symbol: string; init: { type: OptType; strik
                           <td>
                             <span
                               className={clsx(
-                                "inline-block min-w-[58px] border px-2 py-0.5 text-center font-medium",
+                                "inline-block min-w-[58px] rounded-md border px-2 py-0.5 text-center font-medium",
                                 on
                                   ? "border-fg bg-fg text-bg"
                                   : side === "call"
@@ -316,7 +316,7 @@ function FragmentRow({ marker, spot, children }: { marker: boolean; spot: number
     <>
       {marker && (
         <tr>
-          <td colSpan={9} className="h-6 border-b border-line/70 bg-bg px-3 text-center text-[11px] text-muted">
+          <td colSpan={9} className="h-6 border-b border-line bg-bg px-3 text-center text-[11px] text-muted">
             Share price <span className="text-fg">{usd(spot)}</span>
           </td>
         </tr>
@@ -393,6 +393,7 @@ function OrderTicket({
       body: JSON.stringify({ ...c, qty, entryPrice: P }),
     });
     setLogged(res.ok ? "done" : ((await res.json()).error ?? "Could not save the trade"));
+    if (res.ok) toast(`Logged ${qty} × ${c.underlying} ${c.type} at ${P.toFixed(2)}`, "up");
   }
 
   const quick = [
@@ -419,7 +420,7 @@ function OrderTicket({
             key={x.label}
             onClick={() => setLimit(x.label === "Ask" ? null : x.v.toFixed(2))}
             title={`Use the ${x.label.toLowerCase()} as your price`}
-            className="bg-panel py-2 text-center transition-colors hover:bg-raised"
+            className="!rounded-none bg-panel py-2.5 text-center transition-colors hover:bg-raised"
           >
             <div className="cap">{x.label}</div>
             <div className="num mt-0.5 text-[13px]">{x.v.toFixed(2)}</div>
@@ -429,8 +430,8 @@ function OrderTicket({
 
       <div className="px-4 py-2">
         <Row label="Contracts">
-          <span className="flex items-center border border-line-strong">
-            <button aria-label="Fewer contracts" onClick={() => setQty(Math.max(1, qty - 1))} className="grid size-7 place-items-center text-muted hover:bg-raised hover:text-fg">
+          <span className="flex items-center overflow-hidden rounded-lg border border-line-strong">
+            <button aria-label="Fewer contracts" onClick={() => setQty(Math.max(1, qty - 1))} className="grid size-7 place-items-center !rounded-none text-muted hover:bg-raised hover:text-fg">
               <Minus size={13} />
             </button>
             <input
@@ -439,9 +440,9 @@ function OrderTicket({
               aria-label="Contracts"
               value={qty}
               onChange={(e) => setQty(Math.max(1, Math.floor(Number(e.target.value)) || 1))}
-              className="h-7 w-12 border-x border-line-strong bg-transparent text-center focus:outline-none"
+              className="h-7 w-12 !rounded-none border-x border-line-strong bg-transparent text-center focus:outline-none"
             />
-            <button aria-label="More contracts" onClick={() => setQty(qty + 1)} className="grid size-7 place-items-center text-muted hover:bg-raised hover:text-fg">
+            <button aria-label="More contracts" onClick={() => setQty(qty + 1)} className="grid size-7 place-items-center !rounded-none text-muted hover:bg-raised hover:text-fg">
               <Plus size={13} />
             </button>
           </span>
@@ -450,7 +451,7 @@ function OrderTicket({
           <span className="flex items-center gap-2">
             {limit === null ? (
               <span className="cap flex items-center gap-1.5 !text-up">
-                <span className="pulse-dot size-1.5 bg-up" />
+                <span className="pulse-dot size-1.5 rounded-full bg-up" />
                 Live ask
               </span>
             ) : (
@@ -526,7 +527,7 @@ function OrderTicket({
           ["Max loss", usd(cost), "the premium paid"],
           ["Time decay", `${signedUsd(c.theta * 100 * qty)}`, "per day right now"],
         ].map(([label, value, sub]) => (
-          <div key={label} className="bg-panel px-4 py-2.5">
+          <div key={label} className="bg-panel-solid px-4 py-2.5">
             <div className="cap">{label}</div>
             <div className="num mt-1 text-[14px]">{value}</div>
             <div className="text-[11.5px] text-muted">{sub}</div>
@@ -538,7 +539,7 @@ function OrderTicket({
 
       <div className="p-4">
         {logged === "done" ? (
-          <div className="flex items-center justify-between border border-up/40 px-3 py-2 text-[12.5px]">
+          <div className="flex items-center justify-between rounded-xl bg-up/10 px-3.5 py-2.5 text-[12.5px]">
             <span>
               Logged {qty} × {usd(P)}
             </span>
@@ -548,7 +549,7 @@ function OrderTicket({
           </div>
         ) : (
           <>
-            <Button variant="primary" className="!h-9 w-full !text-[13px]" disabled={logged === "saving" || !(P > 0)} onClick={log}>
+            <Button variant="primary" className="!h-10 w-full !rounded-xl !text-[13.5px]" disabled={logged === "saving" || !(P > 0)} onClick={log}>
               Log this purchase
             </Button>
             <p className={clsx("mt-2 text-[11.5px] leading-snug", logged === "idle" || logged === "saving" ? "text-faint" : "text-down")}>
@@ -592,7 +593,7 @@ function Analysis({
 
   const cols = [...new Set([0, Math.round(dteDays / 3), Math.round((2 * dteDays) / 3), dteDays])];
   const moves = [0.2, 0.1, 0.05, 0, -0.05, -0.1, -0.2];
-  const tick = { fill: "var(--color-muted)", fontSize: 11, fontFamily: "var(--font-mono)" };
+  const tick = { fill: "var(--color-muted)", fontSize: 11, fontFamily: "var(--font-sans)" };
 
   return (
     <>
@@ -617,7 +618,7 @@ function Analysis({
               <XAxis dataKey="price" type="number" domain={["dataMin", "dataMax"]} tickFormatter={(v) => usd(v, 0)} tick={tick} tickLine={false} axisLine={{ stroke: "var(--color-line)" }} />
               <YAxis width={64} tickFormatter={(v) => usd(v, 0)} tick={tick} tickLine={false} axisLine={false} />
               <Tooltip
-                contentStyle={{ background: "var(--color-raised)", border: "1px solid var(--color-line-strong)", borderRadius: 0, fontSize: 12 }}
+                contentStyle={{ background: "var(--color-raised)", border: "1px solid var(--color-line-strong)", borderRadius: 12, fontSize: 12 }}
                 labelStyle={{ color: "var(--color-muted)" }}
                 labelFormatter={(l) => `${symbol} at ${usd(Number(l))}`}
                 formatter={(v, name) => [signedUsd(Number(v)), name === "scenario" ? `In ${held}d` : "At expiry"]}
@@ -638,7 +639,7 @@ function Analysis({
         <div className="overflow-x-auto">
           <table className="num w-full min-w-[520px] whitespace-nowrap text-right text-[12.5px]">
             <thead>
-              <tr className="cap [&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-4 [&>th]:font-medium">
+              <tr className="cap [&>th]:h-9 [&>th]:border-b [&>th]:border-line [&>th]:px-5 [&>th]:font-medium">
                 <th className="text-left">Stock move</th>
                 {cols.map((d) => (
                   <th key={d}>{d === 0 ? "Today" : d === dteDays ? "At expiry" : `In ${d}d`}</th>
@@ -647,7 +648,7 @@ function Analysis({
             </thead>
             <tbody>
               {moves.map((m) => (
-                <tr key={m} className="border-b border-line/70 last:border-0 [&>td]:h-8 [&>td]:px-4">
+                <tr key={m} className="border-b border-line last:border-0 [&>td]:h-8 [&>td]:px-5">
                   <td className="text-left">
                     {signedPct(m, 0)} <span className="text-muted">{usd(S * (1 + m))}</span>
                   </td>

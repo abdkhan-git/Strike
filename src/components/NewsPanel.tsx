@@ -44,7 +44,7 @@ export function NewsPanel({ symbol, className }: { symbol: string; className?: s
                 <ul className="mt-2 space-y-0.5 text-[12px] leading-snug text-muted">
                   {brief.drivers.map((d) => (
                     <li key={d} className="flex gap-2">
-                      <span className="mt-[7px] size-[3px] shrink-0 bg-faint" />
+                      <span className="mt-[7px] size-1 shrink-0 rounded-full bg-faint" />
                       {d}
                     </li>
                   ))}
@@ -56,8 +56,8 @@ export function NewsPanel({ symbol, className }: { symbol: string; className?: s
           )}
           <ul className="max-h-[330px] overflow-auto">
             {data.headlines.map((h) => (
-              <li key={h.id} className="border-b border-line/70 last:border-0">
-                <a href={h.url} target="_blank" rel="noreferrer" className="block px-4 py-2.5 transition-colors hover:bg-raised/70">
+              <li key={h.id} className="border-b border-line last:border-0">
+                <a href={h.url} target="_blank" rel="noreferrer" className="block px-4 py-2.5 transition-colors hover:bg-hover">
                   <div className="text-[12.5px] leading-snug">{h.headline}</div>
                   <div className="mt-0.5 text-[11.5px] text-faint">
                     {h.source} · {ago(h.at)}

@@ -25,7 +25,8 @@ export function headlines(symbol: string): Promise<Headline[]> {
       const out: Headline[] = [];
       for (const n of (raw as FinnhubNews[]).sort((a, b) => (b.datetime ?? 0) - (a.datetime ?? 0))) {
         const title = n.headline?.trim();
-        if (!title || !n.url || seen.has(title.toLowerCase())) continue;
+        // only real web links: a headline feed must never hand the page a javascript: or data: address
+        if (!title || !n.url || !/^https?:\/\//i.test(n.url) || seen.has(title.toLowerCase())) continue;
         seen.add(title.toLowerCase());
         out.push({
           id: n.id,

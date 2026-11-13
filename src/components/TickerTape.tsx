@@ -21,24 +21,22 @@ export function TickerTape() {
   if (!quotes.length) return <div className="h-8 shrink-0 border-b border-line" />;
 
   const items = quotes.map((q) => (
-    <Link key={q.symbol} href={`/s/${q.symbol}`} className="flex shrink-0 items-center gap-2 px-4 text-[12px] hover:bg-raised">
-      <span className="font-semibold">{q.symbol}</span>
-      <span className="num text-muted">{usd(q.price)}</span>
+    <Link key={q.symbol} href={`/s/${q.symbol}`} className="flex shrink-0 items-center gap-2 px-4 text-[12px] transition-opacity hover:opacity-70">
+      <span className="font-medium">{q.symbol}</span>
+      <span className="num text-faint">{usd(q.price)}</span>
       <span className={clsx("num", q.changePct >= 0 ? "text-up" : "text-down")}>{signedPct(q.changePct)}</span>
     </Link>
   ));
 
   return (
-    <div className="relative h-8 shrink-0 overflow-hidden border-b border-line bg-panel">
+    <div className="tape-mask h-8 shrink-0 overflow-hidden border-b border-line">
       {/* two copies so the strip loops without a gap */}
       <div className="tape flex h-full w-max items-stretch">
-        <div className="flex items-stretch divide-x divide-line">{items}</div>
-        <div className="flex items-stretch divide-x divide-line" aria-hidden>
+        <div className="flex items-stretch">{items}</div>
+        <div className="flex items-stretch" aria-hidden>
           {items}
         </div>
       </div>
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-panel to-transparent" />
-      <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-panel to-transparent" />
     </div>
   );
 }

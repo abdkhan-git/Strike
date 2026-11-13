@@ -1,6 +1,8 @@
 # Strike
 
-Personal options-flow scanner, profit calculator, trade log with live verdicts, and daily plan. Next.js 16 · React 19 · Tailwind 4 · Recharts.
+Personal options-flow scanner, profit calculator, trade log with live verdicts, and daily plan. Next.js 16 · React 19 · Tailwind 4 · Motion · TradingView Lightweight Charts · Recharts.
+
+Dark by default; light (white page, black charts) from the toggle in the top bar or `?theme=light`. Ctrl K searches tickers, Ctrl J opens Ask Strike.
 
 > Flow scores, verdicts, the 15-minute read and "implied odds" are statistics and fixed rules over market data, not predictions or financial advice.
 
@@ -26,6 +28,17 @@ Without `TRADIER_TOKEN` the app runs on **simulated** data (amber label in the h
 | `NTFY_TOPIC` | Phone push for alerts through the ntfy app; subscribe to this topic (optional) |
 | `GEMINI_MODEL`, `CLAUDE_MODEL` | Override the news-note models; defaults are in `src/lib/ai.ts` |
 | `CLAUDE_CHAT_MODEL` | Override the Ask Strike model (default `claude-opus-5-5`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_SECRET` | Google sign-in. On when all three are set; redirect URI `http://localhost:3000/api/auth/callback` (optional) |
+| `ALLOWED_EMAILS` | Comma-separated emails allowed to sign in. Default: only the first account to sign in (the owner) |
+| `APP_URL`, `ALLOWED_HOSTS` | Public address and extra host names when the app is not on localhost |
+
+## Security
+
+- `src/proxy.ts` runs before every request: it refuses hosts other than localhost, an IP, `APP_URL` or `ALLOWED_HOSTS` (DNS rebinding), refuses state-changing API calls from another origin (CSRF), and, when Google sign-in is configured, sends pages to `/login` and answers API calls with 401.
+- Sign-in is Google's authorization-code flow with PKCE and a one-time state. The session is an HMAC-signed, httpOnly, SameSite=Lax cookie (30 days). Accounts are kept in `data/users.json`.
+- The trade log, plan and brokerage link are one shared set of data. Until data is separated per account, only the owner (or `ALLOWED_EMAILS`) can sign in.
+- Files under `data/` are written to a temporary file and renamed into place, so a crash cannot leave a half-written trade log.
+- `POST /api/picks?action=preview` runs the whole picks pipeline and saves nothing: use it to check the pipeline without touching the track record.
 
 ## Layout
 
@@ -63,8 +76,9 @@ src/
     ai.ts                 Every AI call: free Gemini models, paid Gemini, then Claude; per-model quota tracking
     insights.ts           News digest per symbol and news notes on unusual contracts
     bs.ts                 Black-Scholes pricing, greeks, IV solver
-    store.ts              data/trades.json and data/plan.json (git-ignored)
-  components/             Shell, alert bell, ticker tape, command palette (Ctrl K), signals rail, price chart,
+    store.ts              JSON files under data/ (git-ignored): trades, fills, plan, theses, picks, alerts
+  components/             Shell (centred nav), alert bell, ticker tape, command palette, chat, toasts, theme toggle,
+                          candlestick chart, analysis gauge, signals rail,
                           news panel, UI primitives
 ```
 
@@ -80,7 +94,9 @@ src/
 - **Position calls:** judged against the trade's thesis. Hard exits show at once: the profit target, the stop, the stock crossing the invalidation price, or the sell-by time. Judgement exits must hold for 90 seconds before the call changes: the full analysis turning clearly against the position (−35 or worse on its side), strong reversal warnings while up 25%+, or earnings tomorrow while up 20%+. Otherwise the position is kept, including through dips that stay on the right side of the invalidation price. Short-term momentum never causes a sell. Positions opened outside the picks get a thesis from the full analysis the first time they are seen.
 - **Brokerage sync:** once a minute (and on "Sync now") the brokerage part of the log is rebuilt from the last year of executed option orders: buys open lots, sells close them first-in-first-out at the real fill price. Trades logged by hand are kept unless the same contract appears in the brokerage fills.
 - **Expired positions:** closed automatically at intrinsic value, using the stock's close on expiration day.
-- **Daily plan:** equity is the live brokerage value when linked, otherwise start + realized + open P/L. Risk per trade is a share of equity, halved after a losing day, halved again after three in a row, and zero once the daily loss limit is hit or every slot is used.
+- **Daily plan:** equity is the live brokerage value when linked, otherwise start + realized + open P/L. Risk per trade is a share of equity, halved after a losing day, halved again after three in a row, and zero once the daily loss limit is hit or every slot is used. The loss limit is measured against the account's value that morning and counts unrealized losses on positions opened today. Days are New York calendar days; exchange holidays through 2027 are in `src/lib/session.ts`.
+- **Goal:** the Plan page shows progress against a steady compounding path from start to goal, what that path asks of today and this week in dollars, and a month calendar of realized P/L. The goal never changes trade size or the bar for evidence; the picks judge is told so explicitly.
+- **Affordable picks:** a pick's single contract must cost no more than the plan's risk per trade. Deltas 0.40–0.65 are preferred, 0.30–0.40 allowed when nothing closer fits; a name with nothing affordable is dropped and listed in the notes. A model-set invalidation closer than 0.3 or further than 3.5 daily ranges (ATR) from the price is replaced by the support/resistance level.
 - **Alerts:** a watcher started from `src/instrumentation.ts` runs once a minute from 4:00 to 20:00 ET on weekdays. It alerts when an open position's verdict changes to Take profit, Sell or Trim, when a signal at or above the chosen conviction (default 80) appears for the first time that day, and once when the daily loss limit is hit. The first pass after a restart only records the current state. Alerts are kept in `data/alerts.json` (last 200), shown under the bell, sent as desktop notifications while a Strike tab is open, and pushed to the phone through ntfy when `NTFY_TOPIC` is set.
 - **Plan styles:** Focused (one trade a day, 75% of the account, 40% loss limit, 3 to 45 days out), Steady (5% per trade, 10% daily loss limit, 5 picks, 1 week to 2 months out), Aggressive (12%, 20%, 3 picks, this week to 1 month), All-in (25%, 35%, 2 picks, same-day expiries allowed). Choosing one rewrites risk per trade, the loss limit and position slots, and re-ranks the picks.
 - **AI order:** every AI call tries the free Gemini models first (each has its own daily quota; a model that runs out is skipped until the quota resets at midnight Pacific, an overloaded one is retried once and then skipped for two minutes), then the same models on `GEMINI_PAID_API_KEY`, then Claude. When nothing answers, picks fall back to a rule-based choice and the news falls back to the rule-written lines.

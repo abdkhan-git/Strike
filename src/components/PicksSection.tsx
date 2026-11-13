@@ -1,13 +1,16 @@
 "use client";
 
 import clsx from "clsx";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Tick } from "@/components/Tick";
+import { toast } from "@/components/Toaster";
 import { TradeInstruction } from "@/components/TradeInstruction";
-import { Button, Meter, Panel, PanelHeader, ticketHref } from "@/components/ui";
+import { Badge, Bullets, Button, Meter, Panel, PanelHeader, ticketHref } from "@/components/ui";
 import { contractLabel, dateLabel, pct, shortDate, signedPct, usd } from "@/lib/format";
+import { buyInstruction } from "@/lib/instruction";
+import { etDay } from "@/lib/session";
 import type { Briefing, Checkpoint, Enriched, Horizon, TrackBucket, TrackView, Verdict } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
 
@@ -26,8 +29,14 @@ const CP: { key: Checkpoint; label: string }[] = [
 ];
 const tone = (n: number) => (n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted");
 
+/** What the live call means for someone deciding whether to buy the pick. */
+function liveCall(v: Verdict): { text: string; tone: "up" | "down" | "warn" } {
+  if (v.move === "keep") return v.quality === "bad" ? { text: "Weakening: skip it if you haven't bought", tone: "warn" } : { text: "Still valid: OK to buy at the limit", tone: "up" };
+  return v.quality === "bad" ? { text: "Broken: don't buy; sell if you hold it", tone: "down" } : { text: "Already moved: if you hold it, take the gain", tone: "warn" };
+}
+
 /** Today's picks (with live calls), the re-rank button and the track record. Rendered on the Plan page. */
-export function PicksSection({ paused }: { paused?: boolean }) {
+export function PicksSection({ paused, needToday }: { paused?: boolean; needToday?: number }) {
   const { data, error, reload } = usePoll<PicksData>("/api/picks", 10_000);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -35,189 +44,197 @@ export function PicksSection({ paused }: { paused?: boolean }) {
   async function run() {
     setBusy(true);
     setErr("");
-    const res = await fetch("/api/picks?action=run", { method: "POST" });
-    setBusy(false);
-    if (!res.ok) setErr((await res.json()).error ?? "Could not build picks");
-    reload();
+    try {
+      const res = await fetch("/api/picks?action=run", { method: "POST" });
+      if (!res.ok) setErr((await res.json().catch(() => ({}))).error ?? "Could not build picks");
+      else toast("Picks re-ranked with the latest data", "up");
+    } catch {
+      setErr("Could not reach the server");
+    } finally {
+      setBusy(false);
+      reload();
+    }
   }
 
-  if (!data) return <div className="p-6 text-muted">{error ? <span className="text-down">{error}</span> : "Loading picks…"}</div>;
+  if (!data) return <Panel className="px-5 py-10 text-center text-muted">{error ? <span className="text-down">{error}</span> : "Loading picks…"}</Panel>;
 
   const b = data.briefing;
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const isToday = b?.day === today;
+  const isToday = b?.day === etDay();
   const total = b?.picks.reduce((s, p) => s + p.cost, 0) ?? 0;
+  const need = b?.needToday ?? needToday;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-[15px] font-semibold tracking-tight">Today&apos;s picks</h2>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-[20px] font-semibold tracking-[-0.03em]">Today&apos;s picks</h2>
+          <p className="mt-1 text-[13px] text-muted">
+            {b
+              ? `${isToday ? "Built" : `From ${dateLabel(b.day)}, built`} ${new Date(b.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · ${usd(b.budget, 0)} a trade${
+                  b.picks.length > 1 ? ` · ${usd(total, 0)} for all ${b.picks.length}` : ""
+                }${b.cash !== undefined ? ` · ${usd(b.cash, 0)} cash` : ""}`
+              : "Built automatically at 9:45 ET on trading days, then re-ranked every 30 minutes."}
+          </p>
+        </div>
         <div className="flex items-center gap-3">
-          {err && <span className="text-[12px] text-down">{err}</span>}
+          {err && <span className="text-[12.5px] text-down">{err}</span>}
           <Button variant={isToday ? "default" : "primary"} onClick={run} disabled={busy}>
-            {busy ? "Ranking setups…" : isToday ? "Re-rank now" : "Build today's picks now"}
+            <RefreshCw size={13} className={busy ? "animate-spin" : undefined} />
+            {busy ? "Ranking setups…" : isToday ? "Re-rank now" : "Build today's picks"}
           </Button>
         </div>
       </div>
 
+      {b && !isToday && (
+        <p className="rounded-2xl bg-warn/10 px-4 py-3 text-[13px] text-warn">These picks are from an earlier day. Prices and the case for each have moved; build today&apos;s before acting.</p>
+      )}
+      {b?.paused && (
+        <p className="rounded-2xl bg-warn/10 px-4 py-3 text-[13px] text-warn">
+          Plan paused: your daily loss limit or position slots say no new trades. These are listed for watching and for tomorrow.
+        </p>
+      )}
+
       {!b ? (
-        <Panel className="px-4 py-10 text-center text-muted">
-          No picks yet. They are built automatically at 9:45 ET on weekdays, or press the button to build them now.
+        <Panel className="px-5 py-12 text-center text-muted">No picks yet. Press the button to build them now.</Panel>
+      ) : b.picks.length === 0 ? (
+        <Panel className="px-6 py-10 text-center">
+          <div className="text-[16px] font-semibold tracking-[-0.02em]">No trade today</div>
+          <p className="mx-auto mt-1.5 max-w-[60ch] text-[13px] leading-relaxed text-muted">{b.passed ?? "No setup passed the filters."}</p>
         </Panel>
       ) : (
-        <Panel>
-          <PanelHeader
-            title={`${isToday ? "Today" : dateLabel(b.day)} · built ${new Date(b.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
-            right={
-              <span className="num text-[11.5px] text-muted">
-                {usd(b.budget, 0)} risk each · {usd(total, 0)} for all {b.picks.length}
-                {b.cash !== undefined && ` · ${usd(b.cash, 0)} cash`}
-              </span>
-            }
-          />
-          {b.paused && (
-            <div className="border-b border-warn/40 bg-warn/10 px-4 py-2.5 text-[12.5px] text-warn">
-              Plan paused today: your daily loss limit or position slots say no new trades. These are listed for watching and for
-              tomorrow.
-            </div>
-          )}
-          {b.picks.length === 0 && <div className="px-4 py-8 text-center text-muted">No setup passed the filters.</div>}
-          <ul>
-            {b.picks.map((p) => {
-              const up = p.direction === "bullish";
-              const Arrow = up ? ArrowUpRight : ArrowDownRight;
-              const live = data.live[p.symbol];
-              const entry = p.contract.ask || p.contract.mid;
-              return (
-                <li key={p.symbol} className={clsx("border-b border-l-2 border-b-line/70 px-4 py-4 last:border-b-0", up ? "border-l-up" : "border-l-down")}>
-                  {live?.verdict && (
-                    <div
-                      className={clsx(
-                        "mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-l-2 pl-3",
-                        live.verdict.tone === "up" ? "border-l-up" : live.verdict.tone === "down" ? "border-l-down" : live.verdict.tone === "warn" ? "border-l-warn" : "border-l-line-strong",
-                      )}
-                    >
-                      <span className="cap">Right now</span>
-                      <span className="text-[13.5px] font-semibold">
-                        {live.verdict.move === "keep"
-                          ? live.verdict.quality === "bad"
-                            ? "Still weak: skip it if you haven't bought"
-                            : "Still valid: OK to buy at the limit below"
-                          : live.verdict.quality === "bad"
-                            ? "Broken: don't buy; sell if you hold it"
-                            : "Already moved: if you hold it, take the gain"}
-                      </span>
-                      <span className="text-[12px] text-muted">{live.verdict.headline}</span>
-                    </div>
-                  )}
-                  <TradeInstruction c={live?.contract ?? p.contract} horizon={p.horizon} budget={b.budget} paused={b.paused || paused} className="mb-3" />
-                  {p.thesis && (
-                    <div className="mb-3 grid gap-3 border border-line px-4 py-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                      <div>
-                        <div className="cap mb-1">
-                          The case{p.decidedBy ? ` · chosen by ${p.decidedBy}` : ""}
-                          {p.analysisScore !== undefined && ` · analysis ${p.analysisScore > 0 ? "+" : ""}${p.analysisScore}/100`}
-                        </div>
-                        <p className="text-[13px] leading-relaxed">{p.thesis}</p>
-                        {p.invalidation !== undefined && (
-                          <p className="mt-2 text-[12.5px]">
-                            <span className="font-semibold text-down">
-                              Wrong if {p.symbol} {p.direction === "bullish" ? "falls below" : "rises above"} {usd(p.invalidation)}
-                            </span>
-                            {p.invalidationReason && <span className="text-muted">: {p.invalidationReason}</span>}
-                          </p>
-                        )}
+        b.picks.map((p) => {
+          const up = p.direction === "bullish";
+          const Arrow = up ? ArrowUpRight : ArrowDownRight;
+          const live = data.live[p.symbol];
+          const entry = p.contract.ask || p.contract.mid;
+          const call = live?.verdict ? liveCall(live.verdict) : undefined;
+          const ins = buyInstruction(live?.contract ?? p.contract, { budget: b.budget, horizon: p.horizon });
+          const share = need && need > 0 ? ins.targetGain / need : undefined;
+          return (
+            <Panel key={p.symbol} tone={up ? "up" : "down"}>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-6 pt-5">
+                <span className="num grid size-7 place-items-center rounded-full bg-raised text-[12px] font-semibold text-muted">{p.rank}</span>
+                <Link href={`/s/${p.symbol}`} className="text-[22px] font-semibold leading-none tracking-[-0.03em] hover:underline">
+                  {p.symbol}
+                </Link>
+                <span className={clsx("flex items-center gap-0.5 text-[13.5px] font-medium", up ? "text-up" : "text-down")}>
+                  <Arrow size={16} strokeWidth={2.2} />
+                  {up ? "Bullish" : "Bearish"}
+                </span>
+                <Badge tone="mute">{HORIZON[p.horizon]}</Badge>
+                <span className="flex items-center gap-2 text-[12px] text-faint">
+                  conviction <Meter value={p.score} tone={up ? "up" : "down"} />
+                </span>
+                <div className="ml-auto flex items-center gap-4">
+                  {live ? (
+                    <div className="text-right">
+                      <div className="text-[11.5px] text-faint">Since picked</div>
+                      <Tick value={live.mark} className={clsx("num text-[18px] font-semibold leading-tight", tone(live.ret))}>
+                        {signedPct(live.ret, 0)}
+                      </Tick>
+                      <div className="num text-[11.5px] text-muted">
+                        {usd(entry)} → {usd(live.mark)}
                       </div>
-                      {!!p.risks?.length && (
-                        <div>
-                          <div className="cap mb-1">What could break it</div>
-                          <ul className="space-y-1 text-[12px] leading-snug text-muted">
-                            {p.risks.map((r) => (
-                              <li key={r} className="flex gap-2">
-                                <span className="mt-[7px] size-[3px] shrink-0 bg-warn" />
-                                {r}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
                     </div>
+                  ) : (
+                    <span className="text-[12px] text-faint">No live quote</span>
                   )}
-                  <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_220px]">
+                  <Link href={ticketHref(p.contract)}>
+                    <Button>Open ticket</Button>
+                  </Link>
+                </div>
+              </div>
+
+              <div className="space-y-4 px-6 pb-5 pt-4">
+                {call && live?.verdict && (
+                  <div className={clsx("rounded-xl px-4 py-2.5 text-[13px]", call.tone === "up" ? "bg-up/10" : call.tone === "down" ? "bg-down/10" : "bg-warn/10")}>
+                    <span className={clsx("font-semibold", call.tone === "up" ? "text-up" : call.tone === "down" ? "text-down" : "text-warn")}>{call.text}</span>
+                    <span className="ml-2 text-muted">{live.verdict.headline}</span>
+                  </div>
+                )}
+
+                <TradeInstruction c={live?.contract ?? p.contract} horizon={p.horizon} budget={b.budget} paused={b.paused || paused} />
+
+                {share !== undefined && (
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="num w-5 text-[13px] text-faint">{p.rank}</span>
-                      <Link href={`/s/${p.symbol}`} className="text-[16px] font-semibold hover:underline">
-                        {p.symbol}
-                      </Link>
-                      <span className={clsx("flex items-center gap-0.5 text-[12.5px] font-medium", up ? "text-up" : "text-down")}>
-                        <Arrow size={14} strokeWidth={2} />
-                        {up ? "Bullish" : "Bearish"}
+                    <div className="flex items-baseline justify-between text-[12px]">
+                      <span className="text-muted">
+                        Hitting the target makes <span className="num text-up">+{usd(ins.targetGain, 0)}</span>, {pct(Math.min(share, 9.99), 0)} of what the goal asks of today (
+                        {usd(need!, 0)})
                       </span>
-                      <span className="text-[12px] text-muted">{HORIZON[p.horizon]}</span>
+                      <span className="num text-faint">stop costs −{usd(ins.maxLoss, 0)}</span>
                     </div>
-                    <div className="num mt-1 pl-7 text-[12px] text-muted">
-                      {contractLabel(p.contract)} · expires {dateLabel(p.contract.expiration)}
-                    </div>
-                    <div className="mt-2 flex items-center gap-3 pl-7">
-                      <Meter value={p.score} tone={up ? "up" : "down"} />
-                      <span className="text-[11px] text-faint">score</span>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line-strong">
+                      <div className="h-full rounded-full bg-up transition-[width] duration-500" style={{ width: `${Math.min(1, share) * 100}%` }} />
                     </div>
                   </div>
+                )}
 
-                  <ul className="space-y-0.5 text-[12.5px] leading-snug text-muted">
-                    {p.reasons.map((r) => (
-                      <li key={r} className="flex gap-2">
-                        <span className="mt-[7px] size-[3px] shrink-0 bg-faint" />
-                        {r}
-                      </li>
-                    ))}
-                    <li className="flex gap-2 pt-1 text-fg">
-                      <span className="mt-[7px] size-[3px] shrink-0 bg-fg" />
-                      {pct(p.contract.pop, 0)} odds the stock is past break-even at expiry.
-                    </li>
-                  </ul>
-
-                  <div className="flex flex-col justify-between gap-3 xl:items-end">
-                    {live ? (
-                      <div className="xl:text-right">
-                        <div className="cap">Since picked</div>
-                        <Tick value={live.mark} className={clsx("num text-[20px] font-medium", tone(live.ret))}>
-                          {signedPct(live.ret, 0)}
-                        </Tick>
-                        <div className="num text-[12px] text-muted">
-                          {usd(entry)} → {usd(live.mark)}
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-[12px] text-faint">No live quote</span>
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                  <div>
+                    <div className="text-[12px] font-medium text-muted">
+                      The case
+                      <span className="font-normal text-faint">
+                        {p.decidedBy ? ` · chosen by ${p.decidedBy}` : ""}
+                        {p.analysisScore !== undefined && ` · analysis ${p.analysisScore > 0 ? "+" : ""}${p.analysisScore}/100`}
+                      </span>
+                    </div>
+                    {p.thesis && <p className="mt-1.5 text-[13.5px] leading-relaxed">{p.thesis}</p>}
+                    {p.invalidation !== undefined && (
+                      <p className="mt-2.5 text-[13px]">
+                        <span className="font-semibold text-down">
+                          Wrong if {p.symbol} {up ? "falls below" : "rises above"} {usd(p.invalidation)}
+                        </span>
+                        {p.invalidationReason && <span className="text-muted">: {p.invalidationReason}</span>}
+                      </p>
                     )}
-                    <Link href={ticketHref(p.contract)}>
-                      <Button>Open ticket</Button>
-                    </Link>
+                    <p className="mt-2.5 text-[12.5px] text-muted">
+                      {contractLabel(p.contract)} · expires {dateLabel(p.contract.expiration)} · <span className="num text-fg">{pct(p.contract.pop, 0)}</span> implied odds the stock is
+                      past break-even at expiry
+                    </p>
                   </div>
+                  <div className="space-y-4">
+                    {!!p.risks?.length && (
+                      <div>
+                        <div className="mb-1.5 text-[12px] font-medium text-muted">What could break it</div>
+                        <Bullets items={p.risks} dot="bg-warn" />
+                      </div>
+                    )}
+                    <details className="group">
+                      <summary className="cursor-pointer list-none text-[12px] font-medium text-muted transition-colors hover:text-fg">
+                        Every factor <span className="text-faint group-open:hidden">· show</span>
+                      </summary>
+                      <Bullets items={p.reasons} className="mt-2 !text-[12px]" />
+                    </details>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
+                </div>
+              </div>
+            </Panel>
+          );
+        })
+      )}
+
+      {b && b.picks.length > 0 && (b.passed || b.notes.length > 0) && (
+        <Panel className="space-y-2 px-6 py-4 text-[12.5px] leading-relaxed text-muted">
           {b.passed && (
-            <p className="border-t border-line px-4 py-3 text-[12.5px] leading-relaxed text-muted">
-              <span className="cap mr-2">{b.picks.length ? "Passed over" : "No trade"}</span>
-              {b.passed}
+            <p>
+              <span className="font-medium text-fg">Passed over.</span> {b.passed}
             </p>
           )}
-          {b.notes.length > 0 && (
-            <ul className="space-y-1 border-t border-line px-4 py-3 text-[12px] text-muted">
-              {b.notes.map((n) => (
-                <li key={n}>{n}</li>
-              ))}
-            </ul>
-          )}
+          {b.notes.map((n) => (
+            <p key={n}>{n}</p>
+          ))}
+        </Panel>
+      )}
+      {b && b.picks.length === 0 && b.notes.length > 0 && (
+        <Panel className="space-y-2 px-6 py-4 text-[12.5px] leading-relaxed text-muted">
+          {b.notes.map((n) => (
+            <p key={n}>{n}</p>
+          ))}
         </Panel>
       )}
 
-      <div className="grid items-start gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-5 xl:grid-cols-2">
         <TrackTable title="Track record: picks" buckets={data.track.picks} empty="Picks are scored 1 hour after they are made, at the close, the next day and at expiry." />
         <TrackTable
           title="Track record: signals 70+"
@@ -232,7 +249,7 @@ export function PicksSection({ paused }: { paused?: boolean }) {
           <div className="overflow-x-auto">
             <table className="num w-full min-w-[900px] whitespace-nowrap text-right text-[12.5px]">
               <thead>
-                <tr className="cap [&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-4 [&>th]:font-medium">
+                <tr className="cap [&>th]:h-9 [&>th]:border-b [&>th]:border-line [&>th]:px-5 [&>th]:font-medium">
                   <th className="text-left">Day</th>
                   <th className="text-left">Pick</th>
                   <th>Score</th>
@@ -245,11 +262,10 @@ export function PicksSection({ paused }: { paused?: boolean }) {
               </thead>
               <tbody>
                 {data.track.recent.map((r) => (
-                  <tr key={r.id} className="border-b border-line/70 last:border-0 [&>td]:h-9 [&>td]:px-4">
+                  <tr key={r.id} className="border-b border-line last:border-0 [&>td]:h-10 [&>td]:px-5">
                     <td className="text-left text-muted">{shortDate(r.day)}</td>
-                    <td className="text-left font-sans">
-                      <span className="font-semibold">{r.symbol}</span>{" "}
-                      <span className={r.type === "call" ? "text-up" : "text-down"}>{contractLabel(r)}</span>
+                    <td className="text-left">
+                      <span className="font-semibold">{r.symbol}</span> <span className={r.type === "call" ? "text-up" : "text-down"}>{contractLabel(r)}</span>
                     </td>
                     <td className="text-muted">{r.score ?? "—"}</td>
                     <td>{usd(r.entry)}</td>
@@ -278,12 +294,12 @@ function TrackTable({ title, buckets, empty }: { title: string; buckets: TrackBu
     <Panel className="min-w-0">
       <PanelHeader title={title} />
       {!buckets.length ? (
-        <p className="px-4 py-8 text-center text-[12.5px] text-muted">{empty}</p>
+        <p className="px-5 py-10 text-center text-[12.5px] text-muted">{empty}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="num w-full min-w-[640px] whitespace-nowrap text-right text-[12px]">
+          <table className="num w-full min-w-[640px] whitespace-nowrap text-right text-[12.5px]">
             <thead>
-              <tr className="cap [&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-3 [&>th]:font-medium">
+              <tr className="cap [&>th]:h-9 [&>th]:border-b [&>th]:border-line [&>th]:px-4 [&>th]:font-medium">
                 <th className="text-left">Group</th>
                 <th>N</th>
                 {CP.map((c) => (
@@ -294,8 +310,8 @@ function TrackTable({ title, buckets, empty }: { title: string; buckets: TrackBu
             </thead>
             <tbody>
               {buckets.map((b) => (
-                <tr key={b.label} className="border-b border-line/70 last:border-0 [&>td]:h-9 [&>td]:px-3">
-                  <td className="text-left font-sans text-muted">{b.label}</td>
+                <tr key={b.label} className="border-b border-line last:border-0 [&>td]:h-10 [&>td]:px-4">
+                  <td className="text-left text-muted">{b.label}</td>
                   <td className="text-faint">{b.n}</td>
                   {CP.map((c) => {
                     const x = b.at[c.key];
@@ -303,8 +319,7 @@ function TrackTable({ title, buckets, empty }: { title: string; buckets: TrackBu
                       <td key={c.key} title={x ? `${x.n} scored, ${pct(x.win, 0)} in profit` : undefined}>
                         {x ? (
                           <>
-                            <span className={tone(x.avg)}>{signedPct(x.avg, 0)}</span>{" "}
-                            <span className="text-faint">{pct(x.win, 0)}</span>
+                            <span className={tone(x.avg)}>{signedPct(x.avg, 0)}</span> <span className="text-faint">{pct(x.win, 0)}</span>
                           </>
                         ) : (
                           <span className="text-faint">—</span>
@@ -317,7 +332,7 @@ function TrackTable({ title, buckets, empty }: { title: string; buckets: TrackBu
               ))}
             </tbody>
           </table>
-          <p className="border-t border-line px-3 py-2 text-[11px] text-faint">
+          <p className="border-t border-line px-4 py-2.5 text-[11.5px] text-faint">
             Each cell: average return, then share in profit. Returns are on the contract&apos;s price from the ask when recorded.
           </p>
         </div>

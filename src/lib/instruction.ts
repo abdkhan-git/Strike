@@ -1,4 +1,4 @@
-import { session } from "./session";
+import { addTradingDays, etDay, isTradingDay, session } from "./session";
 import type { Horizon, OptType } from "./types";
 
 /**
@@ -39,25 +39,18 @@ export const exitRules = (h: Horizon) => RULES[h];
 
 // --- New York calendar helpers --------------------------------------------------
 
-const etDate = (ms: number) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+const etDate = (ms: number) => etDay(ms);
 
-function addWeekdays(day: string, n: number) {
-  const d = new Date(`${day}T12:00:00Z`);
-  while (n > 0) {
-    d.setUTCDate(d.getUTCDate() + 1);
-    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) n--;
-  }
-  return d.toISOString().slice(0, 10);
-}
+/** `n` trading days after `day` (weekends and exchange holidays skipped). */
+const addWeekdays = (day: string, n: number) => (n > 0 ? addTradingDays(day, n) : day);
 
-function nextWeekday(day: string) {
-  return addWeekdays(day, 1);
-}
+const nextWeekday = (day: string) => addTradingDays(day, 1);
 
+/** `n` calendar days before `day`, moved back further to land on a trading day. */
 function minusDays(day: string, n: number) {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() - n);
-  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  while (!isTradingDay(d.toISOString().slice(0, 10))) d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
 }
 
@@ -84,10 +77,9 @@ export function entryTiming(now = new Date()) {
   const today = etDate(now.getTime());
   if (state === "Market open") return { day: today, when: "now", whenLong: "now, while the market is open" };
   if (state === "Pre-market") return { day: today, when: "at the open", whenLong: "at today's open, 9:30 am ET" };
-  const weekday = new Date(`${today}T12:00:00Z`).getUTCDay();
   const earlyMorning = Number(time.slice(0, 2)) < 4;
-  // before 4 am ET on a weekday the next open is later the same day; otherwise the next weekday
-  const day = earlyMorning && weekday !== 0 && weekday !== 6 ? today : nextWeekday(today);
+  // before 4 am ET on a trading day the next open is later the same day; otherwise the next trading day
+  const day = earlyMorning && isTradingDay(today) ? today : nextWeekday(today);
   return { day, when: `at the open ${dayLabel(day)}`, whenLong: `at the open on ${dayLabel(day)}, 9:30 am ET` };
 }
 

@@ -289,7 +289,13 @@ export interface PlanView {
   tradingDaysLeft: number;
   /** compounded gain needed every remaining trading day */
   requiredDaily: number;
+  /** dollars the account has to gain today, and over the next five sessions, to stay on that path */
+  needToday: number;
+  needWeek: number;
+  /** realized today */
   todayPnl: number;
+  /** unrealized P/L on positions opened today */
+  todayOpenPnl: number;
   lastDayPnl?: number;
   losingStreak: number;
   openCount: number;
@@ -298,6 +304,20 @@ export interface PlanView {
   /** why today's budget is what it is, and anything else the day's rules say */
   notes: string[];
   halted: boolean;
+  /** realized P/L for every day with a closed trade, oldest first */
+  days: DayPnl[];
+  /** average realized P/L over the last 20 days traded */
+  avgDay?: number;
+  winDays: number;
+  lossDays: number;
+}
+
+/** Realized result of one New York calendar day. */
+export interface DayPnl {
+  day: string;
+  pnl: number;
+  trades: number;
+  wins: number;
 }
 
 export interface BrokerAccount {
@@ -389,6 +409,8 @@ export interface Briefing {
   paused?: boolean;
   /** why the other candidates were passed over, or why there is no trade */
   passed?: string;
+  /** what the goal asked of the day when the picks were made, dollars */
+  needToday?: number;
 }
 
 export type Checkpoint = "h1" | "close" | "d1" | "expiry";

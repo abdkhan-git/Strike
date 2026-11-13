@@ -2,9 +2,12 @@
 
 import clsx from "clsx";
 import { useState } from "react";
+import { GoalPanel } from "@/components/GoalPanel";
 import { PicksSection } from "@/components/PicksSection";
-import { Button, Panel, Stat, StatStrip } from "@/components/ui";
-import { dateLabel, pct, signedUsd, usd } from "@/lib/format";
+import { PnlCalendar } from "@/components/PnlCalendar";
+import { toast } from "@/components/Toaster";
+import { Badge, Bullets, Button, Page, PageError, PageHeader, PageSkeleton, Panel, PanelHeader, fieldClass } from "@/components/ui";
+import { pct, signedUsd, usd } from "@/lib/format";
 import { STYLES, styleOf } from "@/lib/styles";
 import type { PlanSettings, PlanStyle, PlanView } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
@@ -13,24 +16,18 @@ export default function PlanPage() {
   const { data, error, reload } = usePoll<PlanView>("/api/plan", 15_000);
   const [editing, setEditing] = useState(false);
 
-  if (!data) return <div className="p-6 text-muted">{error ? <span className="text-down">{error}</span> : "Building today's plan…"}</div>;
+  if (!data) return error ? <PageError message={error} /> : <PageSkeleton label="Building today's plan…" />;
 
   const p = data.settings;
-  const progress = Math.min(1, Math.max(0, (data.equity - p.startCapital) / Math.max(p.goal - p.startCapital, 1)));
-  const pace = Math.min(1, Math.max(0, (data.onPace - p.startCapital) / Math.max(p.goal - p.startCapital, 1)));
-  const ahead = data.equity >= data.onPace;
 
   return (
-    <div className="mx-auto max-w-[1760px] space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-[18px] font-semibold tracking-tight">Daily plan</h1>
-          <p className="mt-0.5 text-muted">
-            Where you stand against the goal, how hard to push, and today&apos;s picks sized to your style. Picks re-rank every 30 minutes and each one shows a live call.
-          </p>
-        </div>
-        <Button onClick={() => setEditing((v) => !v)}>{editing ? "Close settings" : "Edit goal and limits"}</Button>
-      </div>
+    <Page>
+      <PageHeader
+        eyebrow={<Badge tone="mute">{styleOf(p.style).label} style</Badge>}
+        title="Plan"
+        subtitle="Your goal, what it asks of today, every day's result, and today's picks sized to your limits."
+        right={<Button onClick={() => setEditing((v) => !v)}>{editing ? "Close" : "Edit goal and limits"}</Button>}
+      />
 
       {editing && (
         <Settings
@@ -42,78 +39,83 @@ export default function PlanPage() {
         />
       )}
 
-      <Panel className="px-5 py-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <div className="flex items-baseline gap-3">
-            <span className="num text-[28px] font-medium">{usd(data.equity)}</span>
-            <span className="text-muted">
-              of {usd(p.goal, 0)} by {dateLabel(p.targetDate)}
-            </span>
-          </div>
-          <span className={clsx("text-[12.5px]", ahead ? "text-up" : "text-warn")}>
-            {ahead ? "Ahead of" : "Behind"} a steady path ({usd(data.onPace, 0)} today) · {data.tradingDaysLeft} trading days left
-          </span>
-        </div>
-        <div className="relative mt-3 h-2 bg-line-strong">
-          <span className="absolute inset-y-0 left-0 bg-up" style={{ width: `${progress * 100}%` }} />
-          <span className="absolute top-[-4px] h-4 w-px bg-fg" style={{ left: `${pace * 100}%` }} title="Steady path" />
-        </div>
-        <div className="num mt-1.5 flex justify-between text-[11px] text-faint">
-          <span>{usd(p.startCapital, 0)} start</span>
-          <span>{pct(progress, 0)} of the way</span>
-          <span>{usd(p.goal, 0)}</span>
-        </div>
-      </Panel>
+      <GoalPanel plan={data} />
 
-      <StatStrip>
-        <Stat
-          label="Risk on the next trade"
-          value={usd(data.budget, 0)}
-          sub={data.halted ? "trading paused for today" : `${pct(data.budget / Math.max(data.equity, 1), 1)} of the account`}
-          tone={data.halted ? "down" : undefined}
-        />
-        <Stat
-          label="Today"
-          value={signedUsd(data.todayPnl)}
-          sub={`limit ${usd(p.dailyLossLimit * data.equity, 0)} loss`}
-          tone={data.todayPnl > 0 ? "up" : data.todayPnl < 0 ? "down" : undefined}
-        />
-        <Stat
-          label="Last trading day"
-          value={data.lastDayPnl !== undefined ? signedUsd(data.lastDayPnl) : "—"}
-          sub={data.losingStreak ? `${data.losingStreak} losing day${data.losingStreak === 1 ? "" : "s"} in a row` : "no losing streak"}
-          tone={data.lastDayPnl !== undefined ? (data.lastDayPnl >= 0 ? "up" : "down") : undefined}
-        />
-        <Stat label="Position slots" value={`${data.openCount} / ${p.maxOpen}`} sub={`${Math.max(0, p.maxOpen - data.openCount)} free`} />
-      </StatStrip>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <PnlCalendar days={data.days} needToday={data.needToday} />
+        <Today plan={data} />
+      </div>
 
       <StylePicker value={p} onSaved={reload} />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
-        <div className="min-w-0">
-          <PicksSection paused={data.halted || data.budget <= 0} />
+      <PicksSection paused={data.halted || data.budget <= 0} needToday={data.needToday} />
+    </Page>
+  );
+}
+
+/** What today allows: size of the next trade, how much of the daily loss limit is used, slots, and the day's rules. */
+function Today({ plan }: { plan: PlanView }) {
+  const p = plan.settings;
+  const dayStart = Math.max(1, plan.equity - plan.todayPnl - plan.todayOpenPnl);
+  const limit = p.dailyLossLimit * dayStart;
+  const lost = Math.max(0, -(plan.todayPnl + Math.min(0, plan.todayOpenPnl)));
+  const used = Math.min(1, lost / Math.max(limit, 1));
+  const slots = Array.from({ length: p.maxOpen }, (_, i) => i < plan.openCount);
+
+  return (
+    <Panel>
+      <PanelHeader title="Today" right={plan.halted ? <Badge tone="down">Paused</Badge> : plan.budget <= 0 ? <Badge tone="warn">Slots full</Badge> : <Badge tone="up">Clear to trade</Badge>} />
+      <div className="space-y-5 px-5 py-5">
+        <div>
+          <div className="text-[12px] text-muted">Risk on the next trade</div>
+          <div className={clsx("num mt-1 text-[30px] font-semibold leading-none tracking-[-0.04em]", plan.budget <= 0 && "text-down")}>{usd(plan.budget, 0)}</div>
+          <div className="mt-1.5 text-[12px] text-faint">
+            {plan.budget > 0 ? `${pct(plan.budget / Math.max(plan.equity, 1), 1)} of the account · base ${pct(p.riskPerTrade, 0)}` : "no new trades until this clears"}
+          </div>
         </div>
-        <Panel>
-          <div className="flex h-10 items-center border-b border-line px-4">
-            <h2 className="cap !text-muted">Today&apos;s rules</h2>
+
+        <div>
+          <div className="flex items-baseline justify-between text-[12px]">
+            <span className="text-muted">Daily loss limit</span>
+            <span className="num text-faint">
+              {usd(lost, 0)} of {usd(limit, 0)}
+            </span>
           </div>
-          <ul className="space-y-2 px-4 py-3 text-[12.5px] leading-snug">
-            {data.notes.map((n) => (
-              <li key={n} className="flex gap-2">
-                <span className="mt-[7px] size-[3px] shrink-0 bg-fg" />
-                {n}
-              </li>
-            ))}
-          </ul>
-          <div className="border-t border-line px-4 py-3 text-[11.5px] leading-relaxed text-faint">
-            Base risk is {pct(p.riskPerTrade, 0)} of the account per trade. It halves after a losing day, halves again after three
-            in a row, and goes to zero once today&apos;s loss reaches {pct(p.dailyLossLimit, 0)} or every slot is used. Picks come
-            from the day&apos;s one-sided option flow, follow your style ({styleOf(p.style).blurb}), and re-rank every 30
-            minutes while the market is open.
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line-strong">
+            <div className={clsx("h-full rounded-full transition-[width] duration-500", used >= 1 ? "bg-down" : used >= 0.6 ? "bg-warn" : "bg-fg")} style={{ width: `${used * 100}%` }} />
           </div>
-        </Panel>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <div className="text-[12px] text-muted">Position slots</div>
+            <div className="mt-2 flex gap-1.5">
+              {slots.map((taken, i) => (
+                <span key={i} className={clsx("h-2 flex-1 rounded-full", taken ? "bg-fg" : "bg-line-strong")} />
+              ))}
+            </div>
+            <div className="mt-1.5 text-[12px] text-faint">
+              {plan.openCount} of {p.maxOpen} in use
+            </div>
+          </div>
+          <div>
+            <div className="text-[12px] text-muted">Last trading day</div>
+            <div className={clsx("num mt-1 text-[17px] font-semibold", plan.lastDayPnl === undefined ? "text-faint" : plan.lastDayPnl >= 0 ? "text-up" : "text-down")}>
+              {plan.lastDayPnl !== undefined ? signedUsd(plan.lastDayPnl, 0) : "—"}
+            </div>
+            <div className="text-[12px] text-faint">{plan.losingStreak ? `${plan.losingStreak} red day${plan.losingStreak === 1 ? "" : "s"} in a row` : "no losing streak"}</div>
+          </div>
+        </div>
       </div>
-    </div>
+      <div className="border-t border-line px-5 py-4">
+        <div className="mb-2 text-[12px] font-medium text-muted">Today&apos;s rules</div>
+        <Bullets items={plan.notes} dot="bg-fg" className="!text-fg/90" />
+        <p className="mt-3 text-[11.5px] leading-relaxed text-faint">
+          Size halves after a losing day, halves again after three in a row, and goes to zero once today&apos;s loss reaches {pct(p.dailyLossLimit, 0)} or
+          every slot is used. Picks follow your style ({styleOf(p.style).blurb}).
+        </p>
+      </div>
+    </Panel>
   );
 }
 
@@ -123,27 +125,38 @@ function Settings({ value, onSaved }: { value: PlanSettings; onSaved: () => void
     goal: String(value.goal),
     startDate: value.startDate,
     targetDate: value.targetDate,
-    riskPerTrade: String(value.riskPerTrade * 100),
-    dailyLossLimit: String(value.dailyLossLimit * 100),
+    riskPerTrade: String(+(value.riskPerTrade * 100).toFixed(2)),
+    dailyLossLimit: String(+(value.dailyLossLimit * 100).toFixed(2)),
     maxOpen: String(value.maxOpen),
   });
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const res = await fetch("/api/plan", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...f,
-        style: value.style,
-        riskPerTrade: Number(f.riskPerTrade) / 100,
-        dailyLossLimit: Number(f.dailyLossLimit) / 100,
-      }),
-    });
-    if (res.ok) onSaved();
-    else setErr((await res.json()).error ?? "Could not save");
+    setBusy(true);
+    setErr("");
+    try {
+      const res = await fetch("/api/plan", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...f,
+          style: value.style,
+          riskPerTrade: Number(f.riskPerTrade) / 100,
+          dailyLossLimit: Number(f.dailyLossLimit) / 100,
+        }),
+      });
+      if (res.ok) {
+        toast("Plan saved", "up");
+        onSaved();
+      } else setErr((await res.json().catch(() => ({}))).error ?? "Could not save");
+    } catch {
+      setErr("Could not reach the server");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const fields: [keyof typeof f, string, string, string?][] = [
@@ -157,74 +170,88 @@ function Settings({ value, onSaved }: { value: PlanSettings; onSaved: () => void
   ];
 
   return (
-    <Panel>
-      <form onSubmit={save} className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4 xl:grid-cols-7">
+    <Panel className="rise">
+      <form onSubmit={save} className="grid grid-cols-2 gap-4 p-5 md:grid-cols-4 xl:grid-cols-7">
         {fields.map(([k, label, type, unit]) => (
           <label key={k} className="block">
-            <span className="cap">{label}</span>
-            <span className="relative mt-1 block">
-              <input
-                type={type}
-                step="any"
-                value={f[k]}
-                onChange={set(k)}
-                className="num h-8 w-full border border-line-strong bg-transparent px-2.5 text-[13px] focus:border-muted focus:outline-none [color-scheme:dark]"
-              />
-              {unit && <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-faint">{unit}</span>}
+            <span className="text-[12px] text-muted">{label}</span>
+            <span className="relative mt-1.5 block">
+              <input type={type} step="any" required value={f[k]} onChange={set(k)} className={clsx(fieldClass, "num", unit && "pr-7")} />
+              {unit && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-faint">{unit}</span>}
             </span>
           </label>
         ))}
         <div className="col-span-2 flex items-center gap-3 md:col-span-4 xl:col-span-7">
-          <Button type="submit" variant="primary">
-            Save plan
+          <Button type="submit" variant="primary" disabled={busy}>
+            {busy ? "Saving…" : "Save plan"}
           </Button>
-          {err && <span className="text-[12px] text-down">{err}</span>}
+          {err && <span className="text-[12.5px] text-down">{err}</span>}
         </div>
       </form>
     </Panel>
   );
 }
 
-/** Steady / Aggressive / All-in. Choosing one rewrites risk per trade, the loss limit and slots, and re-ranks the picks. */
+/** Choosing a style rewrites risk per trade, the loss limit and slots, and re-ranks the picks. */
 function StylePicker({ value, onSaved }: { value: PlanSettings; onSaved: () => void }) {
   const [busy, setBusy] = useState<PlanStyle | null>(null);
   const current = value.style ?? "steady";
 
   async function choose(style: PlanStyle) {
-    if (style === current) return;
-    setBusy(style);
+    if (style === current || busy) return;
     const preset = STYLES[style];
-    await fetch("/api/plan", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...value, style, riskPerTrade: preset.riskPerTrade, dailyLossLimit: preset.dailyLossLimit, maxOpen: preset.maxOpen }),
-    });
-    await fetch("/api/picks?action=run", { method: "POST" });
-    setBusy(null);
-    onSaved();
+    if (preset.riskPerTrade >= 0.25 && !confirm(`${preset.label} puts ${Math.round(preset.riskPerTrade * 100)}% of the account on one trade. A single stop-out costs about half of that. Switch?`)) return;
+    setBusy(style);
+    try {
+      const res = await fetch("/api/plan", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...value, style, riskPerTrade: preset.riskPerTrade, dailyLossLimit: preset.dailyLossLimit, maxOpen: preset.maxOpen }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Could not switch style");
+      await fetch("/api/picks?action=run", { method: "POST" }).catch(() => {});
+      toast(`Switched to ${preset.label}`, "up");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not switch style", "down");
+    } finally {
+      setBusy(null);
+      onSaved();
+    }
   }
 
   return (
-    <div className="grid gap-px border border-line bg-line sm:grid-cols-2 xl:grid-cols-4">
-      {(Object.keys(STYLES) as PlanStyle[]).map((k) => {
-        const st = STYLES[k];
-        const on = k === current;
-        return (
-          <button
-            key={k}
-            onClick={() => choose(k)}
-            disabled={!!busy}
-            className={clsx("bg-panel px-4 py-3 text-left transition-colors", on ? "outline outline-1 -outline-offset-1 outline-fg" : "hover:bg-raised")}
-          >
-            <div className="flex items-center justify-between">
-              <span className={clsx("text-[14px] font-semibold", k === "max" ? "text-down" : k === "aggressive" ? "text-warn" : "text-fg")}>{st.label}</span>
-              <span className="cap">{busy === k ? "Re-ranking…" : on ? "Current" : "Switch"}</span>
-            </div>
-            <div className="mt-0.5 text-[12px] text-muted">{st.blurb}</div>
-            <div className="num mt-0.5 text-[11.5px] text-faint">daily loss limit {Math.round(st.dailyLossLimit * 100)}%</div>
-          </button>
-        );
-      })}
+    <div>
+      <h2 className="mb-3 text-[15px] font-semibold tracking-[-0.02em]">How hard to push</h2>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {(Object.keys(STYLES) as PlanStyle[]).map((k) => {
+          const st = STYLES[k];
+          const on = k === current;
+          return (
+            <button
+              key={k}
+              onClick={() => choose(k)}
+              disabled={!!busy}
+              aria-pressed={on}
+              className={clsx("!rounded-2xl border px-5 py-4 text-left transition-colors", on ? "border-fg/60 bg-raised" : "border-line bg-panel hover:border-line-strong")}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[14px] font-semibold">{st.label}</span>
+                {busy === k ? <Badge tone="mute">Re-ranking…</Badge> : on ? <Badge>Current</Badge> : null}
+              </div>
+              <div className="mt-1 text-[12.5px] leading-snug text-muted">{st.blurb}</div>
+              <div className="mt-3 flex items-center gap-2">
+                <span className="h-1 flex-1 overflow-hidden rounded-full bg-line-strong">
+                  <span
+                    className={clsx("block h-full rounded-full", st.riskPerTrade >= 0.25 ? "bg-down" : st.riskPerTrade >= 0.1 ? "bg-warn" : "bg-up")}
+                    style={{ width: `${Math.min(100, st.riskPerTrade * 100 * 1.3 + 4)}%` }}
+                  />
+                </span>
+                <span className="num text-[11.5px] text-faint">stops at −{Math.round(st.dailyLossLimit * 100)}% a day</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

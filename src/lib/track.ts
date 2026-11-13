@@ -41,9 +41,13 @@ const CHECKPOINTS: Checkpoint[] = ["h1", "close", "d1", "expiry"];
 export async function recordPicks(picks: TradePick[]) {
   const rows = await readTrack();
   const day = etDay(Date.now());
-  for (const p of picks)
+  // A pick is recorded once, at the price it was first made at. Re-ranks through the day
+  // must not reset its entry or wipe the checkpoints already scored.
+  const seen = new Set(rows.filter((r) => r.kind === "pick" && r.day === day).map((r) => r.occ));
+  for (const p of picks) {
+    if (seen.has(p.contract.occ)) continue;
     rows.push({
-      id: `pick:${day}:${p.symbol}`,
+      id: `pick:${day}:${p.contract.occ}`,
       kind: "pick",
       day,
       at: Date.now(),
@@ -61,6 +65,7 @@ export async function recordPicks(picks: TradePick[]) {
       marks: {},
       done: false,
     });
+  }
   await writeTrack(dedupe(rows));
 }
 
@@ -98,7 +103,12 @@ export async function recordSignals(list: Signal[], minConviction = 70) {
   if (added) await writeTrack(rows);
 }
 
-const dedupe = (rows: TrackRecord[]) => [...new Map(rows.map((r) => [r.id, r])).values()];
+/** First record wins for an id. */
+const dedupe = (rows: TrackRecord[]) => {
+  const first = new Map<string, TrackRecord>();
+  for (const r of rows) if (!first.has(r.id)) first.set(r.id, r);
+  return [...first.values()];
+};
 
 let lastPeak = 0;
 

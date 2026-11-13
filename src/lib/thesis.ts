@@ -1,4 +1,5 @@
 import { chartOf, provider, signals } from "./market";
+import { etDay } from "./session";
 import type { Bar, Signal } from "./types";
 
 /**
@@ -203,8 +204,9 @@ export async function analyze(symbol: string): Promise<Analysis | undefined> {
   if (!chart || !q || chart.daily.length < 30) return undefined;
   const price = q.price;
   // today's daily bar is replaced by the live price so every factor sees the current session
-  const today = new Date().toISOString().slice(0, 10);
-  const daily = chart.daily.filter((b) => new Date(b.t).toISOString().slice(0, 10) !== today);
+  // (daily bars are stamped at the 4 pm New York close, so the New York date identifies them at any hour)
+  const today = etDay();
+  const daily = chart.daily.filter((b) => etDay(b.t) !== today);
   const intra = chart.bars;
   const dayHigh = intra.length ? Math.max(...intra.map((b) => b.h)) : price;
   const dayLow = intra.length ? Math.min(...intra.map((b) => b.l)) : price;
@@ -299,8 +301,10 @@ export async function analyze(symbol: string): Promise<Analysis | undefined> {
   // support/resistance: the nearest swing levels of the last 20 sessions
   const last20 = d.slice(-21, -1);
   const atr = atrOf(d);
-  const support = Math.max(...last20.map((b) => b.l).filter((x) => x < price), price - 2 * atr);
-  const resistance = Math.min(...last20.map((b) => b.h).filter((x) => x > price), price + 2 * atr);
+  // a level has to be at least half a day's range away to mean anything: a low a few cents
+  // under the price is not support, and an exit placed there would trip on ordinary noise
+  const support = Math.max(...last20.map((b) => b.l).filter((x) => x < price - 0.5 * atr), price - 2 * atr);
+  const resistance = Math.min(...last20.map((b) => b.h).filter((x) => x > price + 0.5 * atr), price + 2 * atr);
 
   return {
     symbol,

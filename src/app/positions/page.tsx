@@ -6,15 +6,16 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Tick } from "@/components/Tick";
-import { Button, Panel, PanelHeader, Stat, StatStrip, Tabs, ticketHref } from "@/components/ui";
+import { Button, Page, PageError, PageHeader, PageSkeleton, Panel, PanelHeader, Stat, StatStrip, Tabs, ticketHref } from "@/components/ui";
+import { toast } from "@/components/Toaster";
 import { contractLabel, pct, shortDate, signedPct, signedUsd, usd } from "@/lib/format";
 import type { BrokerView, TradeView, Verdict } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
 
 const tone = (n: number) => (n > 0 ? "text-up" : n < 0 ? "text-down" : "text-muted");
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-CA");
-const tick = { fill: "var(--color-muted)", fontSize: 11, fontFamily: "var(--font-mono)" };
-const tip = { background: "var(--color-raised)", border: "1px solid var(--color-line-strong)", borderRadius: 0, fontSize: 12 };
+const tick = { fill: "var(--color-muted)", fontSize: 11, fontFamily: "var(--font-sans)" };
+const tip = { background: "var(--color-raised)", border: "1px solid var(--color-line-strong)", borderRadius: 12, fontSize: 12 };
 
 const CALL_TEXT: Record<Verdict["tone"], string> = {
   up: "text-up",
@@ -23,12 +24,7 @@ const CALL_TEXT: Record<Verdict["tone"], string> = {
   neutral: "text-fg",
 };
 
-const ACTION_STYLE: Record<Verdict["tone"], string> = {
-  up: "border-up text-up",
-  down: "border-down text-down",
-  warn: "border-warn text-warn",
-  neutral: "border-line-strong text-fg",
-};
+const EDGE: Record<Verdict["tone"], string> = { up: "edge-up", down: "edge-down", warn: "edge-warn", neutral: "edge-mute" };
 
 export default function PositionsPage() {
   const { data, error, reload, updatedAt } = usePoll<TradeView[]>("/api/trades", 5000);
@@ -65,7 +61,7 @@ export default function PositionsPage() {
   }, [data]);
 
   if (!data)
-    return <div className="p-6 text-muted">{error ? <span className="text-down">{error}</span> : "Loading positions…"}</div>;
+    return error ? <PageError message={error} /> : <PageSkeleton label="Loading positions…" />;
 
   async function close() {
     if (!closing) return;
@@ -75,42 +71,45 @@ export default function PositionsPage() {
       body: JSON.stringify({ id: closing.id, exitPrice: Number(closing.price) }),
     });
     setClosing(null);
+    toast(`Sale recorded at ${Number(closing.price).toFixed(2)}`, "up");
     reload();
   }
 
   async function remove(id: string) {
     if (!confirm("Delete this trade from the log? This cannot be undone.")) return;
     await fetch(`/api/trades?id=${id}`, { method: "DELETE" });
+    toast("Trade deleted from the log");
     reload();
   }
 
   const s = stats;
 
   return (
-    <div className="mx-auto max-w-[1760px] space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-[18px] font-semibold tracking-tight">Positions</h1>
-          <p className="mt-0.5 text-muted">
-            Every position, marked at the live mid price, with a direct call on what to do with it.
-          </p>
-        </div>
-        <LiveClock at={updatedAt} />
-      </div>
+    <Page>
+      <PageHeader
+        eyebrow="Portfolio"
+        title="Positions"
+        subtitle="Every position marked at the live mid price, judged against the case it was opened on, with the exact order to place."
+        right={<LiveClock at={updatedAt} />}
+      />
 
       {s.open.length > 0 && <CallSummary open={s.open} />}
 
       <StatStrip>
-        <Stat label="Open value" value={usd(s.openValue)} sub={`${s.open.length} position${s.open.length === 1 ? "" : "s"} · ${usd(s.openCost)} at cost`} />
+        <Stat label="Open value" value={usd(s.openValue)} num={s.openValue} format={(n) => usd(n)} sub={`${s.open.length} position${s.open.length === 1 ? "" : "s"} · ${usd(s.openCost)} at cost`} />
         <Stat
           label="Open P/L"
           value={signedUsd(s.openPnl)}
+          num={s.openPnl}
+          format={(n) => signedUsd(n)}
           sub={s.openCost > 0 ? `${signedPct(s.openPnl / s.openCost, 1)} · decay ${usd(s.decay)}/day` : undefined}
           tone={s.openPnl > 0 ? "up" : s.openPnl < 0 ? "down" : undefined}
         />
         <Stat
           label="Realized P/L"
           value={signedUsd(s.realized)}
+          num={s.realized}
+          format={(n) => signedUsd(n)}
           sub={`${s.closed.length} closed · ${s.closed.length ? pct(s.winRate, 0) : "—"} win rate`}
           tone={s.realized > 0 ? "up" : s.realized < 0 ? "down" : undefined}
         />
@@ -122,7 +121,7 @@ export default function PositionsPage() {
         />
       </StatStrip>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <Panel className="min-w-0">
           <div className="flex h-10 items-stretch justify-between border-b border-line px-4">
             <Tabs
@@ -165,7 +164,7 @@ export default function PositionsPage() {
             <div className="overflow-x-auto">
               <table className="num w-full min-w-[640px] whitespace-nowrap text-right text-[12.5px]">
                 <thead>
-                  <tr className="cap [&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-4 [&>th]:font-medium">
+                  <tr className="cap [&>th]:h-9 [&>th]:border-b [&>th]:border-line [&>th]:px-5 [&>th]:font-medium">
                     <th className="text-left">Contract</th>
                     <th>Qty</th>
                     <th>Entry</th>
@@ -177,7 +176,7 @@ export default function PositionsPage() {
                 </thead>
                 <tbody>
                   {[...s.closed].reverse().map((t) => (
-                    <tr key={t.id} className="border-b border-line/70 last:border-0 [&>td]:h-10 [&>td]:px-4">
+                    <tr key={t.id} className="border-b border-line last:border-0 [&>td]:h-10 [&>td]:px-5">
                       <td className="text-left font-sans font-semibold">
                         {t.underlying} <span className="font-normal text-muted">{contractLabel(t)}</span>
                       </td>
@@ -208,7 +207,7 @@ export default function PositionsPage() {
           )}
         </Panel>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
           <BrokerPanel onSynced={reload} />
           {s.closed.length >= 5 && <Breakdown closed={s.closed} />}
           <Panel>
@@ -220,9 +219,9 @@ export default function PositionsPage() {
                     <CartesianGrid vertical={false} stroke="var(--color-line)" />
                     <XAxis dataKey="d" tickFormatter={(d) => shortDate(d)} tick={tick} tickLine={false} axisLine={{ stroke: "var(--color-line)" }} />
                     <YAxis width={56} tickFormatter={(v) => usd(v, 0)} tick={tick} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={tip} labelFormatter={(d) => shortDate(String(d))} formatter={(v) => [signedUsd(Number(v)), "Realized"]} cursor={{ fill: "rgb(255 255 255 / 0.04)" }} />
+                    <Tooltip contentStyle={tip} labelFormatter={(d) => shortDate(String(d))} formatter={(v) => [signedUsd(Number(v)), "Realized"]} cursor={{ fill: "var(--c-hover)" }} />
                     <ReferenceLine y={0} stroke="var(--color-line-strong)" />
-                    <Bar dataKey="pnl" isAnimationActive={false}>
+                    <Bar dataKey="pnl" radius={3} isAnimationActive={false}>
                       {s.days.map((d) => (
                         <Cell key={d.d} fill={d.pnl >= 0 ? "var(--color-up)" : "var(--color-down)"} />
                       ))}
@@ -253,7 +252,7 @@ export default function PositionsPage() {
           )}
         </div>
       </div>
-    </div>
+    </Page>
   );
 }
 
@@ -281,7 +280,7 @@ function PositionRow({
   const entryAt = v && span > 0 ? (t.entryPrice - v.stop) / span : 0;
 
   return (
-    <li className="grid gap-4 border-b border-line/70 px-4 py-4 last:border-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+    <li className="grid gap-5 border-b border-line px-5 py-5 last:border-0 lg:grid-cols-[260px_minmax(0,1fr)]">
       <div>
         <div className="flex items-baseline justify-between gap-2">
           <Link href={`/s/${t.underlying}`} className="text-[15px] font-semibold hover:underline">
@@ -300,10 +299,10 @@ function PositionRow({
         </div>
         {at !== undefined && v && (
           <div className="mt-3">
-            <div className="relative h-1.5 bg-line-strong">
-              <span className="absolute inset-y-0 left-0 bg-down/40" style={{ width: `${entryAt * 100}%` }} />
-              <span className="absolute inset-y-0 bg-up/40" style={{ left: `${entryAt * 100}%`, right: 0 }} />
-              <span className="absolute top-[-4px] h-[14px] w-[3px] bg-fg" style={{ left: `calc(${at * 100}% - 1px)` }} />
+            <div className="relative h-1.5 rounded-full bg-line-strong">
+              <span className="absolute inset-y-0 left-0 rounded-l-full bg-down/40" style={{ width: `${entryAt * 100}%` }} />
+              <span className="absolute inset-y-0 rounded-r-full bg-up/40" style={{ left: `${entryAt * 100}%`, right: 0 }} />
+              <span className="absolute top-[-4px] h-[14px] w-[3px] rounded-full bg-fg" style={{ left: `calc(${at * 100}% - 1px)` }} />
             </div>
             <div className="num mt-1 flex justify-between text-[10.5px] text-faint">
               <span>stop {v.stop.toFixed(2)}</span>
@@ -316,7 +315,7 @@ function PositionRow({
 
       <div className="min-w-0">
         {v ? (
-          <div className={clsx("border-l-2 pl-4", ACTION_STYLE[v.tone].split(" ")[0])}>
+          <div className={clsx("edge pl-4 [&::before]:bottom-1 [&::before]:top-1 [&::before]:rounded-full", EDGE[v.tone])}>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className={clsx("text-[17px] font-semibold tracking-tight", CALL_TEXT[v.tone])}>{v.call}</span>
               <span className="num text-[11.5px] text-muted">
@@ -324,7 +323,7 @@ function PositionRow({
               </span>
             </div>
             <p className="mt-1.5 text-[13.5px] leading-relaxed">{v.headline}</p>
-            <p className="mt-2 inline-block border border-line-strong bg-raised px-2.5 py-1.5 text-[13px] font-medium">
+            <p className="mt-2.5 inline-block rounded-xl bg-raised px-3.5 py-2 text-[13px] font-medium">
               <span className="cap mr-2 !text-muted">Do this now</span>
               {v.doNow}
             </p>
@@ -347,7 +346,7 @@ function PositionRow({
             <ul className="mt-2 grid gap-x-6 gap-y-0.5 text-[12px] leading-snug text-muted md:grid-cols-2">
               {v.reasons.map((r) => (
                 <li key={r} className="flex gap-2">
-                  <span className="mt-[7px] size-[3px] shrink-0 bg-faint" />
+                  <span className="mt-[7px] size-1 shrink-0 rounded-full bg-faint" />
                   {r}
                 </li>
               ))}
@@ -415,6 +414,7 @@ function BrokerPanel({ onSynced }: { onSynced: () => void }) {
     if (action === "connect") window.open(json.url, "_blank", "noopener");
     else {
       setMsg(`Synced ${json.trades} trades from your brokerage fills.`);
+      toast(`Synced ${json.trades} trades from your brokerage`, "up");
       onSynced();
       reload();
     }
@@ -449,18 +449,18 @@ function BrokerPanel({ onSynced }: { onSynced: () => void }) {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-px border-b border-line bg-line">
-            <div className="bg-panel px-4 py-3">
+            <div className="bg-panel-solid px-4 py-3">
               <div className="cap">Account value</div>
               <div className="num mt-1 text-[17px] font-medium">{usd(total)}</div>
             </div>
-            <div className="bg-panel px-4 py-3">
+            <div className="bg-panel-solid px-4 py-3">
               <div className="cap">Cash</div>
               <div className="num mt-1 text-[17px] font-medium">{usd(cash)}</div>
             </div>
           </div>
           <ul className="border-b border-line">
             {data.accounts.map((a) => (
-              <li key={a.id} className="flex items-center justify-between border-b border-line/70 px-4 py-2 text-[12.5px] last:border-0">
+              <li key={a.id} className="flex items-center justify-between border-b border-line px-4 py-2 text-[12.5px] last:border-0">
                 <span className="truncate text-muted">{a.name}</span>
                 <span className="num">{a.total != null ? usd(a.total) : "—"}</span>
               </li>
@@ -499,7 +499,7 @@ function LiveClock({ at }: { at?: number }) {
   const stale = secs === undefined || secs > 20;
   return (
     <div className="flex items-center gap-2 text-[12px]">
-      <span className={clsx("size-1.5", stale ? "bg-warn" : "pulse-dot bg-up")} />
+      <span className={clsx("size-1.5 rounded-full", stale ? "bg-warn" : "pulse-dot bg-up")} />
       <span className={stale ? "text-warn" : "text-muted"}>
         {secs === undefined ? "Connecting…" : stale ? `Last update ${secs}s ago` : `Live · updated ${secs}s ago · every 5s`}
       </span>
@@ -524,11 +524,11 @@ function CallSummary({ open }: { open: TradeView[] }) {
 
   return (
     <div
-      className="grid gap-px border border-line bg-line max-sm:!grid-cols-1"
+      className="grid gap-3 max-sm:!grid-cols-1"
       style={{ gridTemplateColumns: `repeat(${groups.length}, minmax(0, 1fr))` }}
     >
       {groups.map((g) => (
-        <div key={g.key} className="bg-panel px-4 py-3">
+        <div key={g.key} className="min-w-0 rounded-2xl border border-line bg-panel px-5 py-4">
           <div className={clsx("text-[13.5px] font-semibold", g.tone)}>
             {g.label} <span className="num font-normal text-muted">· {g.ts.length}</span>
           </div>

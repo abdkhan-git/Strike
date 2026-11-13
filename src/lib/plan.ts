@@ -1,8 +1,9 @@
 import { brokerView } from "./broker";
 import { pct, usd } from "./format";
 import { tradeViews } from "./positions";
+import { etDay, tradingDaysBetween } from "./session";
 import { readPlan } from "./store";
-import type { PlanSettings, PlanView, TradeView } from "./types";
+import type { DayPnl, PlanSettings, PlanView, TradeView } from "./types";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -23,28 +24,29 @@ export function defaultPlan(startCapital = 10_000): PlanSettings {
   };
 }
 
-/** Weekdays from `from` (exclusive) to `to` (inclusive). Exchange holidays are not removed. */
-function tradingDays(from: Date, to: Date) {
-  let n = 0;
-  const d = new Date(from);
-  d.setUTCHours(12, 0, 0, 0);
-  const end = new Date(to);
-  end.setUTCHours(12, 0, 0, 0);
-  while (d < end) {
-    d.setUTCDate(d.getUTCDate() + 1);
-    const dow = d.getUTCDay();
-    if (dow !== 0 && dow !== 6) n++;
+/** Realized P/L per New York calendar day, oldest first. */
+export function dailyPnl(trades: TradeView[]): DayPnl[] {
+  const by = new Map<string, DayPnl>();
+  for (const t of trades) {
+    if (t.status !== "closed" || !t.exitAt) continue;
+    const day = etDay(t.exitAt);
+    const row = by.get(day) ?? { day, pnl: 0, trades: 0, wins: 0 };
+    row.pnl += t.pnl;
+    row.trades += 1;
+    if (t.pnl > 0) row.wins += 1;
+    by.set(day, row);
   }
-  return n;
+  return [...by.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
 }
 
 /**
- * Today's plan: where the account stands against the goal, how much to risk on the next
- * trade given recent results, and the strongest signals sized to that amount.
+ * Today's plan: where the account stands against the goal, what the goal asks of today,
+ * and how much to risk on the next trade given recent results.
  *
  * Sizing rules: the base risk is `riskPerTrade` of the account. It is halved after a
  * losing day and halved again on a streak of three, never raised above the base, and
- * set to zero once the day's loss reaches `dailyLossLimit` or every slot is taken.
+ * set to zero once the day's loss reaches `dailyLossLimit` or every slot is taken. The
+ * goal never raises the size: being behind is not a reason to bet more.
  */
 export async function buildPlan(settings: PlanSettings, trades: TradeView[], brokerEquity?: number): Promise<PlanView> {
   const open = trades.filter((t) => t.status === "open");
@@ -54,30 +56,30 @@ export async function buildPlan(settings: PlanSettings, trades: TradeView[], bro
   // a linked brokerage already marks every position, so its value is the account's equity
   const equity = brokerEquity && brokerEquity > 0 ? brokerEquity : settings.startCapital + realized + openPnl;
 
-  // realized P/L per calendar day, most recent first
-  const byDay = new Map<string, number>();
-  for (const t of closed) {
-    const day = new Date(t.exitAt ?? 0).toLocaleDateString("en-CA");
-    byDay.set(day, (byDay.get(day) ?? 0) + t.pnl);
-  }
-  const today = new Date().toLocaleDateString("en-CA");
-  const past = [...byDay.entries()].filter(([d]) => d !== today).sort((a, b) => (a[0] < b[0] ? 1 : -1));
-  const todayPnl = byDay.get(today) ?? 0;
-  const lastDayPnl = past[0]?.[1];
+  const days = dailyPnl(trades);
+  const today = etDay();
+  const past = days.filter((d) => d.day !== today).reverse();
+  const todayPnl = days.find((d) => d.day === today)?.pnl ?? 0;
+  // positions opened today count toward the day's loss before they are closed
+  const todayOpenPnl = open.filter((t) => etDay(t.entryAt) === today).reduce((s, t) => s + t.pnl, 0);
+  const lastDayPnl = past[0]?.pnl;
   let losingStreak = 0;
-  for (const [, pnl] of past) {
-    if (pnl >= 0) break;
+  for (const d of past) {
+    if (d.pnl >= 0) break;
     losingStreak++;
   }
 
-  const now = new Date();
-  const start = new Date(settings.startDate + "T12:00:00Z");
-  const target = new Date(settings.targetDate + "T12:00:00Z");
-  const total = Math.max(1, tradingDays(start, target));
-  const tradingDaysLeft = Math.max(1, tradingDays(now, target));
+  const total = Math.max(1, tradingDaysBetween(settings.startDate, settings.targetDate));
+  const tradingDaysLeft = Math.max(1, tradingDaysBetween(today, settings.targetDate));
   const elapsed = Math.min(1, Math.max(0, (total - tradingDaysLeft) / total));
   const onPace = settings.startCapital * (settings.goal / settings.startCapital) ** elapsed;
-  const requiredDaily = equity > 0 ? (settings.goal / equity) ** (1 / tradingDaysLeft) - 1 : 0;
+  const reached = equity >= settings.goal;
+  const requiredDaily = equity > 0 && !reached ? (settings.goal / equity) ** (1 / tradingDaysLeft) - 1 : 0;
+  const needToday = equity * requiredDaily;
+  const needWeek = equity * ((1 + requiredDaily) ** Math.min(5, tradingDaysLeft) - 1);
+
+  const recent = days.slice(-20);
+  const avgDay = recent.length ? recent.reduce((s, d) => s + d.pnl, 0) / recent.length : undefined;
 
   const notes: string[] = [];
   let factor = 1;
@@ -89,11 +91,14 @@ export async function buildPlan(settings: PlanSettings, trades: TradeView[], bro
     factor *= 0.5;
     notes.push(`${losingStreak} losing days in a row: size is halved again until a winning day.`);
   }
-  const halted = todayPnl <= -settings.dailyLossLimit * equity;
-  if (halted) notes.push(`Down ${usd(-todayPnl)} today, past the ${pct(settings.dailyLossLimit, 0)} daily limit. No new trades today.`);
+  // the limit is measured against what the account was worth this morning
+  const dayLoss = Math.min(0, todayPnl + Math.min(0, todayOpenPnl));
+  const dayStart = Math.max(1, equity - todayPnl - todayOpenPnl);
+  const halted = dayLoss <= -settings.dailyLossLimit * dayStart;
+  if (halted) notes.push(`Down ${usd(-dayLoss)} today, past the ${pct(settings.dailyLossLimit, 0)} daily limit. No new trades today.`);
   const slots = Math.max(0, settings.maxOpen - open.length);
   if (!slots) notes.push(`All ${settings.maxOpen} position slots are in use. Close one before opening another.`);
-  if (equity >= settings.goal) notes.push("The goal is reached. Consider lowering risk per trade to protect it.");
+  if (reached) notes.push("The goal is reached. Consider lowering risk per trade to protect it.");
   else if (requiredDaily > 0.01)
     notes.push(
       `Reaching the goal needs ${pct(requiredDaily, 2)} compounded every trading day, far above what any strategy sustains. Treat the goal as a direction and the risk limits as the rules.`,
@@ -110,13 +115,20 @@ export async function buildPlan(settings: PlanSettings, trades: TradeView[], bro
     onPace,
     tradingDaysLeft,
     requiredDaily,
+    needToday,
+    needWeek,
     todayPnl,
+    todayOpenPnl,
     lastDayPnl,
     losingStreak,
     openCount: open.length,
     budget,
     notes,
     halted,
+    days,
+    avgDay,
+    winDays: days.filter((d) => d.pnl > 0).length,
+    lossDays: days.filter((d) => d.pnl < 0).length,
   };
 }
 

@@ -1,59 +1,168 @@
 @import "tailwindcss";
 
-@theme {
-  --color-bg: #08080a;
-  --color-panel: #0d0d0f;
-  --color-raised: #151518;
-  --color-line: #1c1c20;
-  --color-line-strong: #2b2b31;
-  --color-fg: #ededf0;
-  --color-muted: #8b8b95;
-  --color-faint: #55555e;
-  --color-up: #3ecf8e;
-  --color-down: #f0616d;
-  --color-warn: #e5a83b;
-  --color-accent: #6ea8fe;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-}
-
-html {
+/*
+ * Design tokens. Dark is the default: a true-black page with quiet, solid surfaces
+ * separated by hairlines. Light is a white page with black charts. No backdrop
+ * gradients and no hover glows: depth comes from surface steps and spacing only.
+ */
+:root {
+  --c-bg: #000000;
+  --c-panel: #0b0b0d;
+  --c-panel-solid: #0b0b0d;
+  --c-raised: #17171a;
+  --c-hover: rgb(255 255 255 / 0.045);
+  --c-line: rgb(255 255 255 / 0.075);
+  --c-line-strong: rgb(255 255 255 / 0.14);
+  --c-fg: #f5f5f7;
+  --c-muted: #a0a0a8;
+  --c-faint: #6b6b74;
+  --c-up: #32d74b;
+  --c-down: #ff453a;
+  --c-warn: #ff9f0a;
+  --c-accent: #0a84ff;
+  --c-overlay: rgb(22 22 25 / 0.82);
+  --r-ctl: 8px;
+  --r-card: 16px;
   color-scheme: dark;
 }
 
+:root[data-theme="light"] {
+  --c-bg: #ffffff;
+  --c-panel: #ffffff;
+  --c-panel-solid: #ffffff;
+  --c-raised: #f2f2f4;
+  --c-hover: rgb(0 0 0 / 0.04);
+  --c-line: rgb(0 0 0 / 0.09);
+  --c-line-strong: rgb(0 0 0 / 0.17);
+  --c-fg: #1d1d1f;
+  --c-muted: #62626a;
+  --c-faint: #9a9aa2;
+  --c-up: #1a8a37;
+  --c-down: #d70015;
+  --c-warn: #b25000;
+  --c-accent: #0071e3;
+  --c-overlay: rgb(255 255 255 / 0.86);
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-panel: var(--c-panel);
+  --color-panel-solid: var(--c-panel-solid);
+  --color-raised: var(--c-raised);
+  --color-hover: var(--c-hover);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-faint: var(--c-faint);
+  --color-up: var(--c-up);
+  --color-down: var(--c-down);
+  --color-warn: var(--c-warn);
+  --color-accent: var(--c-accent);
+  --font-sans: var(--font-geist), -apple-system, BlinkMacSystemFont, "SF Pro Text", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+}
+
+@layer base {
+  /* every control gets the same soft corner unless a utility says otherwise */
+  button,
+  input,
+  select,
+  textarea,
+  kbd {
+    border-radius: var(--r-ctl);
+  }
+  button:not(:disabled),
+  select {
+    cursor: pointer;
+  }
+}
+
 body {
-  background: var(--color-bg);
-  color: var(--color-fg);
+  background: var(--c-bg);
+  color: var(--c-fg);
   font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.45;
-  font-feature-settings: "cv11", "ss01", "tnum";
-  letter-spacing: -0.006em;
+  font-size: 13.5px;
+  line-height: 1.5;
+  letter-spacing: -0.008em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection {
-  background: rgb(110 168 254 / 0.3);
+  background: color-mix(in srgb, var(--c-accent) 32%, transparent);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-color: var(--c-line-strong) transparent;
 }
 
-/* figures: monospaced so columns line up and live values do not shift width */
+/* figures: the text face with fixed-width digits, so columns line up and live values do not shift */
 .num {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  font-feature-settings: "tnum", "zero" 0;
+  letter-spacing: -0.012em;
 }
 
-/* small uppercase label used for table heads and field captions */
+/* quiet label for table heads and field captions */
 .cap {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 500;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--color-faint);
+  letter-spacing: 0;
+  color: var(--c-faint);
+}
+
+/* floating surface: menus, dialogs, the top bar */
+.glass {
+  background: var(--c-overlay);
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+}
+
+/* a short rounded bar on the left edge that carries a row's direction or tone */
+.edge {
+  position: relative;
+}
+.edge::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--edge, transparent);
+}
+.edge-up {
+  --edge: var(--c-up);
+}
+.edge-down {
+  --edge: var(--c-down);
+}
+.edge-warn {
+  --edge: var(--c-warn);
+}
+.edge-accent {
+  --edge: var(--c-accent);
+}
+.edge-mute {
+  --edge: var(--c-line-strong);
+}
+
+/* loading shimmer */
+.shimmer {
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--c-raised) 0%, var(--c-line-strong) 50%, var(--c-raised) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
 }
 
 input[type="number"]::-webkit-inner-spin-button,
@@ -68,38 +177,42 @@ input[type="number"] {
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
-  height: 16px;
+  height: 18px;
   width: 100%;
   background: transparent;
   cursor: pointer;
 }
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 2px;
-  background: var(--color-line-strong);
+  height: 4px;
+  border-radius: 4px;
+  background: var(--c-line-strong);
 }
 input[type="range"]::-moz-range-track {
-  height: 2px;
-  background: var(--color-line-strong);
+  height: 4px;
+  border-radius: 4px;
+  background: var(--c-line-strong);
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 6px;
+  width: 16px;
   height: 16px;
-  margin-top: -7px;
-  background: var(--color-fg);
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--c-fg);
   border: 0;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
 }
 input[type="range"]::-moz-range-thumb {
-  width: 6px;
+  width: 16px;
   height: 16px;
-  background: var(--color-fg);
+  border-radius: 50%;
+  background: var(--c-fg);
   border: 0;
-  border-radius: 0;
 }
 
 :focus-visible {
-  outline: 1px solid var(--color-accent);
-  outline-offset: 1px;
+  outline: 2px solid color-mix(in srgb, var(--c-accent) 70%, transparent);
+  outline-offset: 2px;
 }
 
 @keyframes rise {
@@ -109,7 +222,7 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 .rise {
-  animation: rise 0.18s ease-out;
+  animation: rise 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes pulse-dot {
@@ -121,17 +234,44 @@ input[type="range"]::-moz-range-thumb {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
-/* live figure moved: brief colour wash that fades back to the normal text colour */
+/* three dots while the assistant is working */
+@keyframes typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+.typing > span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--c-muted);
+  animation: typing 1.2s ease-in-out infinite;
+}
+.typing > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* live figure moved: the number itself flashes its colour, then settles */
 @keyframes tick-up {
   from {
-    color: var(--color-up);
-    background: rgb(62 207 142 / 0.14);
+    color: var(--c-up);
   }
 }
 @keyframes tick-down {
   from {
-    color: var(--color-down);
-    background: rgb(240 97 109 / 0.14);
+    color: var(--c-down);
   }
 }
 .tick-up {
@@ -147,10 +287,21 @@ input[type="range"]::-moz-range-thumb {
   }
 }
 .tape {
-  animation: tape 90s linear infinite;
+  animation: tape 110s linear infinite;
 }
 .tape:hover {
   animation-play-state: paused;
+}
+.tape-mask {
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+
+/* recharts draws a focus rectangle around charts on click */
+.recharts-wrapper:focus,
+.recharts-surface:focus,
+.recharts-wrapper *:focus {
+  outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -158,7 +309,21 @@ input[type="range"]::-moz-range-thumb {
   .tick-down,
   .tape,
   .rise,
-  .pulse-dot {
+  .pulse-dot,
+  .shimmer,
+  .typing > span {
     animation: none;
   }
+}
+
+/* the selected segment of a segmented control */
+.thumb {
+  background: rgb(255 255 255 / 0.13);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+:root[data-theme="light"] .thumb {
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.14),
+    0 0 0 0.5px rgb(0 0 0 / 0.06);
 }

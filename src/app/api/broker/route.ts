@@ -9,11 +9,13 @@ export async function GET() {
 
 /**
  * `?action=connect` returns a link to SnapTrade's page for connecting a brokerage.
- * `?action=sync` rebuilds the brokerage trades in the log from executed orders right away.
+ * `?action=sync` rebuilds the brokerage trades in the log from executed orders right away
+ * (every fill ever seen is kept, so the history never shrinks).
  */
 export async function POST(req: NextRequest) {
+  const action = new URL(req.url).searchParams.get("action");
   try {
-    if (req.nextUrl.searchParams.get("action") === "sync") return Response.json({ trades: await syncFromBroker(true) });
+    if (action === "sync") return Response.json({ trades: await syncFromBroker(true) });
     return Response.json({ url: await connectUrl() });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Brokerage request failed" }, { status: 502 });

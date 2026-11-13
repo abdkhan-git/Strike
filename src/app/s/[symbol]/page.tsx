@@ -7,12 +7,14 @@ import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { LogTradeDialog, type Loggable } from "@/components/LogTradeDialog";
 import { NewsPanel } from "@/components/NewsPanel";
-import { OutlookBand, PriceChart } from "@/components/PriceChart";
+import { AnalysisGauge } from "@/components/AnalysisGauge";
+import { OutlookBand, PriceChart, type ChartLine } from "@/components/PriceChart";
 import { SymbolTrade } from "@/components/SymbolTrade";
 import { Tick } from "@/components/Tick";
-import { Button, CatalystTag, Change, Chip, Meter, Panel, PanelHeader, Segmented, Stat, StatStrip, ticketHref } from "@/components/ui";
+import { Button, CatalystTag, Change, Chip, Meter, NumberTicker, Page, PageError, PageHeader, PageSkeleton, Panel, PanelHeader, Segmented, Stat, StatStrip, ticketHref } from "@/components/ui";
 import { compact, pct, shortDate, signedPct, signedUsd, strikeLabel, usd } from "@/lib/format";
-import type { ChartResult, OptType, SymbolView } from "@/lib/types";
+import type { Analysis } from "@/lib/thesis";
+import type { ChartResult, OptType, SymbolView, TradeView } from "@/lib/types";
 import { usePoll } from "@/lib/usePoll";
 
 export default function SymbolPage() {
@@ -31,6 +33,8 @@ function SymbolDetail({ symbol }: { symbol: string }) {
   );
 
   const { data: chart } = usePoll<ChartResult>(`/api/chart?symbol=${encodeURIComponent(symbol)}`, 10_000);
+  const { data: analysis } = usePoll<Analysis>(`/api/analysis?symbol=${encodeURIComponent(symbol)}`, 30_000);
+  const { data: trades } = usePoll<TradeView[]>("/api/trades", 15_000);
   const trend = chart?.trend;
 
   const spot = data?.summary.quote.price ?? 0;
@@ -53,54 +57,66 @@ function SymbolDetail({ symbol }: { symbol: string }) {
     return { rows: cs.filter((c) => c.type === side && near.has(c.strike)), bars, atm, walls };
   }, [data, side, spot]);
 
+  const lines = useMemo<ChartLine[]>(() => {
+    const out: ChartLine[] = [];
+    if (analysis) {
+      out.push({ price: analysis.levels.support, label: "support", tone: "muted" });
+      out.push({ price: analysis.levels.resistance, label: "resistance", tone: "muted" });
+    }
+    for (const t of trades ?? []) {
+      if (t.status !== "open" || t.underlying !== symbol || !t.verdict?.thesis) continue;
+      out.push({ price: t.verdict.thesis.invalidation, label: `${t.type} invalidation`, tone: "down" });
+    }
+    return out;
+  }, [analysis, trades, symbol]);
+
   if (!data)
-    return (
-      <div className="p-6 text-muted">
-        {error ? <span className="text-down">{error}</span> : `Loading ${symbol}…`}
-      </div>
-    );
+    return error ? <PageError message={error} /> : <PageSkeleton label={`Loading ${symbol}…`} />;
 
   const s = data.summary;
   const q = s.quote;
 
   return (
-    <div className="mx-auto max-w-[1760px] space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-3 text-[12px] text-muted">
+    <Page>
+      <PageHeader
+        eyebrow={
+          <>
             <Link href="/" className="hover:text-fg">
               Scanner
             </Link>
-            <span className="text-faint">/</span>
-            <span>{q.name}</span>
+            <span>/</span>
+            <span className="normal-case tracking-normal text-muted">{q.name}</span>
             <CatalystTag c={s.catalyst} />
-          </div>
-          <div className="mt-1 flex items-baseline gap-3">
-            <h1 className="text-[26px] font-semibold tracking-tight">{q.symbol}</h1>
-            <Tick value={q.price} className="num text-[26px] font-medium">
-              {usd(q.price)}
+          </>
+        }
+        title={
+          <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <span>{q.symbol}</span>
+            <Tick value={q.price} className="num font-medium">
+              <NumberTicker value={q.price} format={(n) => usd(n)} />
             </Tick>
-            <Change value={q.changePct} className="text-[14px]" />
-            <span className={clsx("num text-[13px]", q.change >= 0 ? "text-up" : "text-down")}>{signedUsd(q.change)}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {error && <span className="text-[12px] text-down">{error}</span>}
-          <Link href={`/calculator?sym=${symbol}`}>
-            <Button variant="primary" className="!h-8 !px-3 !text-[12.5px]">
-              Trade {symbol} in calculator
-            </Button>
-          </Link>
-        </div>
-      </div>
+            <Change value={q.changePct} className="text-[15px]" />
+            <span className={clsx("num text-[14px]", q.change >= 0 ? "text-up" : "text-down")}>{signedUsd(q.change)}</span>
+          </span>
+        }
+        right={
+          <>
+            {error && <span className="text-[12px] text-down">{error}</span>}
+            {analysis && <AnalysisGauge score={analysis.score} />}
+            <Link href={`/calculator?sym=${symbol}`}>
+              <Button variant="primary">Trade {symbol}</Button>
+            </Link>
+          </>
+        }
+      />
 
       <SymbolTrade symbol={symbol} callShare={(s.flowBias + 1) / 2} outlook={chart?.outlook} />
 
       <OutlookBand outlook={chart?.outlook} loading={!chart} />
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
-        <div className="min-w-0 space-y-4">
-          <PriceChart data={chart} price={q.price} />
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="min-w-0 space-y-5">
+          <PriceChart data={chart} price={q.price} lines={lines} />
           <StatStrip>
             <Stat
               label={`Implied move by ${shortDate(s.exp)}`}
@@ -159,10 +175,10 @@ function SymbolDetail({ symbol }: { symbol: string }) {
           right={
             <div className="flex items-center gap-4 text-[12px] text-muted">
               <span className="flex items-center gap-1.5">
-                <span className="size-2 bg-up" /> Calls
+                <span className="size-2 rounded-full bg-up" /> Calls
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="size-2 bg-down" /> Puts
+                <span className="size-2 rounded-full bg-down" /> Puts
               </span>
             </div>
           }
@@ -174,15 +190,15 @@ function SymbolDetail({ symbol }: { symbol: string }) {
               <XAxis dataKey="strike" tick={{ fill: "var(--color-muted)", fontSize: 11 }} tickLine={false} axisLine={{ stroke: "var(--color-line)" }} />
               <YAxis width={44} tickFormatter={compact} tick={{ fill: "var(--color-muted)", fontSize: 11 }} tickLine={false} axisLine={false} />
               <Tooltip
-                cursor={{ fill: "rgb(255 255 255 / 0.04)" }}
-                contentStyle={{ background: "var(--color-raised)", border: "1px solid var(--color-line-strong)", borderRadius: 0, fontSize: 12 }}
+                cursor={{ fill: "var(--c-hover)" }}
+                contentStyle={{ background: "var(--color-raised)", border: "1px solid var(--color-line-strong)", borderRadius: 12, fontSize: 12 }}
                 labelStyle={{ color: "var(--color-muted)" }}
                 labelFormatter={(l) => `Strike ${l}`}
                 formatter={(v) => Number(v).toLocaleString("en-US")}
               />
               <ReferenceLine x={strikeLabel(atm)} stroke="var(--color-faint)" strokeDasharray="3 3" label={{ value: "spot", position: "top", fill: "var(--color-muted)", fontSize: 11 }} />
-              <Bar dataKey="Calls" fill="var(--color-up)" isAnimationActive={false} />
-              <Bar dataKey="Puts" fill="var(--color-down)" isAnimationActive={false} />
+              <Bar dataKey="Calls" fill="var(--color-up)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="Puts" fill="var(--color-down)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -205,7 +221,7 @@ function SymbolDetail({ symbol }: { symbol: string }) {
         <div className="overflow-x-auto">
           <table className="num w-full min-w-[960px] whitespace-nowrap text-right text-[12.5px]">
             <thead>
-              <tr className="cap [&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-3 [&>th]:font-medium">
+              <tr className="cap [&>th]:h-9 [&>th]:border-b [&>th]:border-line [&>th]:px-3 [&>th]:font-medium">
                 <th className="text-left">Strike</th>
                 <th>Bid</th>
                 <th>Ask</th>
@@ -227,7 +243,7 @@ function SymbolDetail({ symbol }: { symbol: string }) {
                   <tr
                     key={c.occ}
                     className={clsx(
-                      "border-b border-line/70 last:border-0 hover:bg-raised/60 [&>td]:h-9 [&>td]:px-3",
+                      "border-b border-line last:border-0 hover:bg-hover [&>td]:h-9 [&>td]:px-3",
                       itm && "bg-raised/30",
                     )}
                   >
@@ -264,6 +280,6 @@ function SymbolDetail({ symbol }: { symbol: string }) {
       </Panel>
 
       {logging && <LogTradeDialog contract={logging} onClose={() => setLogging(null)} />}
-    </div>
+    </Page>
   );
 }
