@@ -2,12 +2,15 @@ import { cached } from "./cache";
 import { marketContext } from "./context";
 import type { Brief } from "./desk";
 import { contractLabel, signedPct, signedUsd, usd } from "./format";
+import { focusList, type FocusItem } from "./focus";
+import { gapFor, type GapRead } from "./gap";
 import { scan } from "./market";
 import { paperView } from "./paper";
 import { latestBriefing } from "./picks";
 import { currentPlan } from "./plan";
 import { tradeViews } from "./positions";
 import { addTradingDays, etDay, isTradingDay, session } from "./session";
+import { readWatch } from "./store";
 import { styleOf } from "./styles";
 
 /**
@@ -76,6 +79,26 @@ async function build(): Promise<Brief> {
   });
   const picksToday = picks.filter((p) => p.day === day);
 
+  // gaps: the indices first, then what you hold, what was picked and what you are watching
+  let gaps: GapRead[] = [];
+  if (phase !== "closed") {
+    const watch = await readWatch().catch(() => []);
+    const names = [...new Set(["SPY", "QQQ", "IWM", ...open.map((t) => t.underlying), ...picks.map((p) => p.symbol), ...watch.map((w) => w.symbol)])].slice(0, 12);
+    gaps = (await Promise.all(names.map((s) => gapFor(s).catch(() => undefined)))).filter((g): g is GapRead => !!g && g.phase !== "none");
+  }
+  const gapWord = (g: GapRead) =>
+    `${g.symbol} ${signedPct(g.gapPct)} (${Math.abs(g.gapAtr).toFixed(1)}× a normal day${g.phase === "open" && g.state !== "none" ? `, ${g.state}` : ""})`;
+  const meaningful = gaps.filter((g) => Math.abs(g.gapAtr) >= 0.3).sort((a, b) => Math.abs(b.gapAtr) - Math.abs(a.gapAtr));
+  const spyGap = gaps.find((g) => g.symbol === "SPY");
+  const focus: FocusItem[] = phase === "pre" || phase === "open" ? await focusList().catch(() => []) : [];
+  const leaning = focus.filter((f) => f.lean !== "two-way");
+  const focusLine = focus.length
+    ? `Ones to watch: ${focus
+        .slice(0, 4)
+        .map((f) => (f.lean === "two-way" ? `${f.symbol} (${f.move >= 50 ? "big move likely, " : ""}direction unclear)` : `${f.symbol} ${f.lean} (${f.confidence.toLowerCase()})`))
+        .join("; ")}.${leaning.length ? " Each is only a buy once it confirms after 9:45." : ""}`
+    : undefined;
+
   const today = plan.days.find((d) => d.day === day);
   const sorted = [...rows].sort((a, b) => b.quote.changePct - a.quote.changePct);
   const movers = [...sorted.slice(0, 4), ...sorted.slice(-4)].map((r) => ({ symbol: r.quote.symbol, price: r.quote.price, changePct: r.quote.changePct }));
@@ -92,7 +115,24 @@ async function build(): Promise<Brief> {
   const backdrop = `${context.regime.label === "Mixed" ? "The index has no clear trend" : `The index is in ${context.regime.label === "Uptrend" ? "an uptrend" : "a downtrend"}`} (SPY analysis ${context.regime.score > 0 ? "+" : ""}${context.regime.score}) and volatility is ${context.vol.label.toLowerCase()}.`;
 
   if (phase === "pre" || phase === "closed") {
-    lines.push(spy ? `SPY is ${signedPct(spy.changePct)} at ${usd(spy.price)} against the last close. ${backdrop}` : backdrop);
+    lines.push(
+      spyGap && spyGap.pre
+        ? `SPY is ${signedPct(spyGap.gapPct)} pre-market at ${usd(spyGap.pre.last)} (${Math.abs(spyGap.gapAtr).toFixed(1)}× a normal day). ${backdrop}`
+        : spy
+          ? `SPY is ${signedPct(spy.changePct)} at ${usd(spy.price)} against the last close. ${backdrop}`
+          : backdrop,
+    );
+    if (meaningful.length)
+      lines.push(
+        `Gapping: ${meaningful
+          .slice(0, 5)
+          .map(gapWord)
+          .join("; ")}. A pre-market gap is a lean, not a signal: wait for what the stock does with it after 9:30.`,
+      );
+    if (focusLine) lines.push(focusLine);
+    const fills = meaningful.filter((g) => g.history && g.history.n >= 5 && g.history.filled / g.history.n >= 0.6);
+    if (fills.length)
+      lines.push(`These usually fill gaps like today's: ${fills.map((g) => `${g.symbol} (${g.history!.filled} of ${g.history!.n} times)`).join(", ")}. Chasing the gap at the open is the trap.`);
     lines.push(
       plan.halted
         ? "Your plan is paused: no new trades until the loss limit resets."
@@ -111,6 +151,15 @@ async function build(): Promise<Brief> {
     lines.push(phase === "closed" ? `The market is closed. Next session: ${dayName(nextDay)}. Picks are built at 9:45 ET.` : "Picks are built at 9:45 ET, once option flow has formed. Nothing is worth buying in the first 15 minutes.");
   } else if (phase === "open") {
     lines.push(spy ? `SPY is ${signedPct(spy.changePct)} at ${usd(spy.price)}. ${backdrop}` : backdrop);
+    if (focusLine) lines.push(focusLine.replace(" Each is only a buy once it confirms after 9:45.", ""));
+    const failed = meaningful.filter((g) => g.state === "filled");
+    const holding = meaningful.filter((g) => g.state === "holding" || g.state === "extending");
+    if (failed.length || holding.length)
+      lines.push(
+        [holding.length ? `Gaps holding: ${holding.map(gapWord).join("; ")}.` : "", failed.length ? `Gaps that failed (back through yesterday's close): ${failed.map((g) => g.symbol).join(", ")}.` : ""]
+          .filter(Boolean)
+          .join(" "),
+      );
     lines.push(`Realized today: ${signedUsd(plan.todayPnl, 0)}${plan.todayOpenPnl ? `, with ${signedUsd(plan.todayOpenPnl, 0)} open on today's trades` : ""}. ${plan.halted ? "The daily loss limit is hit: no new trades." : `Size for the next trade: ${usd(size, 0)}.`}`);
     if (needAction.length) lines.push(`Needs action now: ${needAction.map((p) => `${p.label}: ${p.doNow}`).join(" ")}`);
     if (picksToday.length) lines.push(`Today's picks: ${picksToday.map((p) => `${p.label} ${p.pnlPct !== undefined ? signedPct(p.pnlPct, 0) : ""} (${p.status})`).join("; ")}.`);
@@ -168,6 +217,8 @@ async function build(): Promise<Brief> {
     lines,
     context,
     movers,
+    gaps,
+    focus,
     plan: { equity: plan.equity, budget: plan.budget, needToday: plan.needToday, todayPnl: plan.todayPnl, todayOpenPnl: plan.todayOpenPnl, halted: plan.halted, style: style.label, notes: plan.notes },
     positions,
     picks,

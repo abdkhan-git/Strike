@@ -503,6 +503,8 @@ export interface Provider {
   info: ProviderInfo;
   /** one-minute bars for the most recent session */
   intraday(symbol: string): Promise<Bar[]>;
+  /** today's pre-market one-minute bars (4:00–9:30 ET), when the feed has them */
+  premarket?(symbol: string): Promise<Bar[]>;
   /** daily bars, about six months, oldest first */
   daily(symbol: string): Promise<Bar[]>;
   universe(): Promise<{ symbol: string; catalyst?: Catalyst }[]>;

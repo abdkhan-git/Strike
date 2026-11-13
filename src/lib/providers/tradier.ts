@@ -1,4 +1,5 @@
-import type { Catalyst, OptionContract, Provider, Quote } from "../types";
+import { etDay } from "../session";
+import type { Bar, Catalyst, OptionContract, Provider, Quote } from "../types";
 
 /**
  * Tradier market data. Production tokens on a brokerage account are real-time;
@@ -144,6 +145,13 @@ export function tradierProvider(token: string, env: string, finnhubKey?: string)
           c: num(r.close),
           v: num(r.volume),
         }));
+    },
+    async premarket(symbol): Promise<Bar[]> {
+      const today = etDay();
+      const json = await get("/markets/timesales", { symbol, interval: "1min", start: `${today} 04:00`, end: `${today} 09:29`, session_filter: "all" });
+      return arr<Record<string, unknown>>(json.series?.data)
+        .filter((r) => String(r.time).slice(0, 10) === today && String(r.time).slice(11, 16) < "09:30")
+        .map((r) => ({ t: num(r.timestamp) * 1000, o: num(r.open), h: num(r.high), l: num(r.low), c: num(r.close), v: num(r.volume) }));
     },
     async daily(symbol) {
       const json = await get("/markets/history", { symbol, interval: "daily", start: day(-190) });

@@ -79,6 +79,18 @@ function IdeaForm({ onAdded }: { onAdded: () => void }) {
   const [typed, setTyped] = useState("SPY");
   const [symbol, setSymbol] = useState("SPY");
   const [side, setSide] = useState<OptType>("put");
+
+  // /watch?sym=NVDA&side=call opens the form on that contract (links from the Brief)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const s = (q.get("sym") ?? "").toUpperCase();
+    if (/^[A-Z.]{1,6}$/.test(s)) {
+      setTyped(s);
+      setSymbol(s);
+    }
+    const sd = q.get("side");
+    if (sd === "call" || sd === "put") setSide(sd);
+  }, []);
   const [exp, setExp] = useState<string | undefined>();
   const [strike, setStrike] = useState<number | undefined>();
   const [dollars, setDollars] = useState("");

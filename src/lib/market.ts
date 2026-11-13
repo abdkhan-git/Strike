@@ -3,13 +3,17 @@ import { cached } from "./cache";
 import { simProvider } from "./providers/sim";
 import { tradierProvider } from "./providers/tradier";
 import { outlookOf, trendOf } from "./outlook";
-import type { Catalyst, ChartResult, Enriched, Horizon, Provider, ScanResult, Signal, SignalsResult, SymbolView } from "./types";
+import type { Bar, Catalyst, ChartResult, Enriched, Horizon, Provider, ScanResult, Signal, SignalsResult, SymbolView } from "./types";
 
 // One provider per process (on globalThis, like the cache) so every caller shares Tradier's rate limiter.
-const g = globalThis as { __strikeProvider?: Provider };
+// Versioned so a dev hot reload that changes the provider's shape replaces the old object
+// instead of keeping one without the new methods.
+const PROVIDER_VERSION = 2;
+const g = globalThis as { __strikeProvider?: Provider; __strikeProviderV?: number };
 
 export function provider(): Provider {
-  if (g.__strikeProvider) return g.__strikeProvider;
+  if (g.__strikeProvider && g.__strikeProviderV === PROVIDER_VERSION) return g.__strikeProvider;
+  g.__strikeProviderV = PROVIDER_VERSION;
   const token = process.env.TRADIER_TOKEN;
   g.__strikeProvider = token
     ? tradierProvider(token, process.env.TRADIER_ENV ?? "sandbox", process.env.FINNHUB_API_KEY)
@@ -127,6 +131,18 @@ export function chartOf(symbol: string): Promise<ChartResult> {
       trend: trendOf(daily, quote.price),
     };
   });
+}
+
+/** About six months of daily bars, shared with chartOf's cache (refreshed every 30 minutes). */
+export function dailyOf(symbol: string): Promise<Bar[]> {
+  return cached(`daily|${symbol}`, 30 * 60_000, () => provider().daily(symbol));
+}
+
+/** Today's pre-market bars, cached for a minute. Empty when the feed has none (simulated data, or no trades yet). */
+export function premarketOf(symbol: string): Promise<Bar[]> {
+  const p = provider();
+  if (!p.premarket) return Promise.resolve([]);
+  return cached(`pre|${symbol}`, 60_000, () => p.premarket!(symbol)).catch(() => []);
 }
 
 /** One contract with live price, IV and greeks, for marking and judging logged positions. */

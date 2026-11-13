@@ -1,3 +1,5 @@
+import type { FocusItem } from "./focus";
+import type { GapRead } from "./gap";
 import type { Enriched, Horizon, OptType } from "./types";
 
 /** Types shared by the trade check, the market context and the paper lab. No server imports. */
@@ -141,6 +143,10 @@ export interface Brief {
   lines: string[];
   context: MarketContext;
   movers: { symbol: string; price: number; changePct: number }[];
+  /** the indices plus everything you hold, picked or watch: how each opened against yesterday's close */
+  gaps: GapRead[];
+  /** the names most likely to make an outsized move today, and which way the evidence leans */
+  focus: FocusItem[];
   plan: { equity: number; budget: number; needToday: number; todayPnl: number; todayOpenPnl: number; halted: boolean; style: string; notes: string[] };
   positions: { id: string; label: string; type: OptType; qty: number; pnl: number; pnlPct: number; call?: string; tone?: "up" | "down" | "warn" | "neutral"; doNow?: string; sellBy?: string; needsAction: boolean }[];
   picks: { symbol: string; label: string; type: OptType; day: string; entry: number; pnl?: number; pnlPct?: number; status: string; held: boolean }[];

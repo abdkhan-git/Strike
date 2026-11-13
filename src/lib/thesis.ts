@@ -1,5 +1,6 @@
-import { chartOf, provider, signals } from "./market";
-import { etDay } from "./session";
+import { readGap } from "./gap";
+import { chartOf, premarketOf, provider, signals } from "./market";
+import { etDay, session } from "./session";
 import type { Bar, Signal } from "./types";
 
 /**
@@ -31,6 +32,7 @@ export interface Analysis {
   reversal: { risk: number; against: "bullish" | "bearish" | null; signs: string[] };
   levels: { support: number; resistance: number; atr: number; dayLow: number; dayHigh: number; vwap?: number };
   flow?: { direction: "bullish" | "bearish"; conviction: number; horizons: string[] };
+  gap?: import("./gap").GapRead;
   asOf: number;
 }
 
@@ -207,11 +209,13 @@ export async function analyze(symbol: string): Promise<Analysis | undefined> {
   // (daily bars are stamped at the 4 pm New York close, so the New York date identifies them at any hour)
   const today = etDay();
   const daily = chart.daily.filter((b) => etDay(b.t) !== today);
-  const intra = chart.bars;
+  // only today's regular-session bars describe today: before the open the feed still returns
+  // yesterday's session, and treating it as today would invent a flat, doji-shaped extra day
+  const intra = chart.bars.filter((b) => etDay(b.t) === today);
   const dayHigh = intra.length ? Math.max(...intra.map((b) => b.h)) : price;
   const dayLow = intra.length ? Math.min(...intra.map((b) => b.l)) : price;
-  const live: Bar = { t: Date.now(), o: intra[0]?.o ?? price, h: dayHigh, l: dayLow, c: price, v: intra.reduce((s, b) => s + b.v, 0) };
-  const d = [...daily, live];
+  const live: Bar | undefined = intra.length ? { t: Date.now(), o: intra[0].o, h: dayHigh, l: dayLow, c: price, v: intra.reduce((s, b) => s + b.v, 0) } : undefined;
+  const d = live ? [...daily, live] : daily;
   const closes = d.map((b) => b.c);
   const n = closes.length;
 
@@ -273,6 +277,11 @@ export async function analyze(symbol: string): Promise<Analysis | undefined> {
     );
   }
 
+  // the gap from yesterday's close and what the stock is doing with it
+  const pre = !intra.length && session(new Date()).state === "Pre-market" ? await premarketOf(symbol) : [];
+  const gap = readGap(symbol, daily, intra, pre, price, daily.at(-1)?.c ?? chart.prevClose);
+  if (gap.phase !== "none") add("gap", "Gap and opening range", gap.value, 0.08, gap.note);
+
   // where options money is going, all horizons
   const ff = list ? flowFactor(list.signals, symbol) : { value: 0, note: "flow unavailable" };
   add("flow", "Options flow", ff.value, 0.2, ff.note);
@@ -294,12 +303,14 @@ export async function analyze(symbol: string): Promise<Analysis | undefined> {
   const score = Math.round((100 * factors.reduce((s, f) => s + f.value * f.weight, 0)) / factors.reduce((s, f) => s + f.weight, 0));
 
   const signs = reversalSigns(d, intra, price, rsi, hist);
+  if (gap.state === "filled")
+    signs.push({ dir: gap.gapAtr > 0 ? "bullish" : "bearish", w: 0.3, text: `gapped ${gap.gapAtr > 0 ? "up" : "down"} and has filled the gap back through yesterday's close (failed gap)` });
   const against = score > 0 ? "bullish" : score < 0 ? "bearish" : null;
   const relevant = signs.filter((s) => s.dir === against);
   const risk = clamp(relevant.reduce((s, x) => s + x.w, 0), 0, 1);
 
   // support/resistance: the nearest swing levels of the last 20 sessions
-  const last20 = d.slice(-21, -1);
+  const last20 = live ? d.slice(-21, -1) : d.slice(-20);
   const atr = atrOf(d);
   // a level has to be at least half a day's range away to mean anything: a low a few cents
   // under the price is not support, and an exit placed there would trip on ordinary noise
@@ -315,6 +326,7 @@ export async function analyze(symbol: string): Promise<Analysis | undefined> {
     reversal: { risk, against: relevant.length ? against : null, signs: relevant.map((s) => s.text) },
     levels: { support, resistance, atr, dayLow, dayHigh, vwap: chart.outlook?.vwap },
     flow: ff.flow,
+    gap: gap.phase !== "none" ? gap : undefined,
     asOf: Date.now(),
   };
 }
