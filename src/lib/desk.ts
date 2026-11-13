@@ -99,24 +99,35 @@ export interface PaperTrade {
   exitReason?: "target" | "stop" | "time" | "thesis" | "expiry";
   /** the plan had paused trading when this pick was made */
   paused?: boolean;
+  /** what opened it: a morning pick (the default) or a Go verdict from the trade check */
+  source?: "pick" | "go";
+  /** for a Go: the check's score and entry timing when it fired */
+  score?: number;
+  entryTag?: string;
 }
+
+export interface PaperStats {
+  n: number;
+  open: number;
+  closed: number;
+  pnl: number;
+  openPnl: number;
+  winRate: number;
+  avgWinPct: number;
+  avgLossPct: number;
+  /** average dollars per closed trade */
+  expectancy: number;
+}
+export type PaperCurve = { day: string; pnl: number; cum: number }[];
 
 export interface PaperView {
   trades: (PaperTrade & { pnl: number; pnlPct: number })[];
-  stats: {
-    n: number;
-    open: number;
-    closed: number;
-    pnl: number;
-    openPnl: number;
-    winRate: number;
-    avgWinPct: number;
-    avgLossPct: number;
-    /** average dollars per closed trade */
-    expectancy: number;
-  };
+  /** everything together */
+  stats: PaperStats;
   /** cumulative closed P/L by day, oldest first */
-  curve: { day: string; pnl: number; cum: number }[];
+  curve: PaperCurve;
+  /** the same figures for morning picks alone and for Go verdicts alone */
+  groups: Record<"pick" | "go", { stats: PaperStats; curve: PaperCurve }>;
 }
 
 /** The pre-market brief or post-market round-up: one page of what matters for the session. */

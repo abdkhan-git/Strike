@@ -4,7 +4,7 @@ import { contractText } from "./instruction";
 import { contractLabel, pct, usd } from "./format";
 import { signals } from "./market";
 import { latestBriefing, runBriefing } from "./picks";
-import { markPaper } from "./paper";
+import { markPaper, openPaperGo } from "./paper";
 import { currentPlan } from "./plan";
 import { tradeViews } from "./positions";
 import { etDay, session } from "./session";
@@ -196,6 +196,8 @@ async function runCheck() {
       for (const c of await checkAll(ideas)) {
         const before = state.watch.get(c.idea.id);
         state.watch.set(c.idea.id, c.verdict);
+        // every Go is followed on paper, alert or not: that is the record of whether a Go is worth acting on
+        if (c.verdict === "go") await openPaperGo(c).catch((e) => console.warn("[paper] could not track the Go:", e instanceof Error ? e.message : e));
         // nothing to say about a contract you already bought: Positions takes over from here
         if (!state.primed || c.held || c.verdict !== "go" || before === "go" || before === undefined) continue;
         out.push({
@@ -267,6 +269,7 @@ async function signalAlert(s: Signal, trades: TradeView[]): Promise<Omit<Alert, 
     const flow = `Flow: ${s.reasons[0]}.`;
     const failing = c.items.filter((i) => i.status === "fail").map((i) => i.label.toLowerCase());
     if (trades.some((t) => t.status === "open" && t.occ === lead.occ)) return { ...base, title: `${base.title}: you already hold ${name}`, href: "/positions" };
+    if (c.verdict === "go") await openPaperGo(c).catch(() => {});
     if (c.verdict === "go")
       return { ...base, kind: "watch", title: `BUY NOW: ${name} (score ${c.score}, conviction ${s.conviction})`, body: `Every check lines up and the entry is ${c.entry ?? "open"}. ${c.order?.text ?? ""} ${flow}`, href: "/watch" };
     if (c.entry === "late")

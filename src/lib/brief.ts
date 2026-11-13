@@ -61,7 +61,7 @@ async function build(): Promise<Brief> {
 
   const heldOcc = new Set(open.map((t) => t.occ));
   const picks: Brief["picks"] = (briefing?.picks ?? []).map((p) => {
-    const sim = paper?.trades.find((x) => x.occ === p.contract.occ && x.day === briefing!.day);
+    const sim = paper?.trades.find((x) => x.occ === p.contract.occ && x.day === briefing!.day && (x.source ?? "pick") === "pick");
     return {
       symbol: p.symbol,
       label: `${p.symbol} ${contractLabel(p.contract)}`,

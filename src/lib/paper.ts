@@ -1,6 +1,6 @@
 import { dteOf } from "./analytics";
 import { intrinsic } from "./bs";
-import type { PaperTrade, PaperView } from "./desk";
+import type { IdeaCheck, PaperCurve, PaperStats, PaperTrade, PaperView } from "./desk";
 import { exitRules, sellBy } from "./instruction";
 import { chartOf, contractOf, provider } from "./market";
 import { etDay } from "./session";
@@ -21,12 +21,17 @@ import type { Briefing } from "./types";
  * Prices are sampled once a minute while the app is running, so a move that comes and
  * goes inside a minute, or while the app is off, is not seen. The result answers one
  * question: what would following the picks exactly have made, in dollars?
+ *
+ * Go verdicts from the trade check (a queued Watch idea turning Go, or a signal alert sent
+ * as BUY NOW) are tracked the same way, at the plan's size, once per contract per day.
+ * They have no invalidation price, so they exit by target, stop, time or expiry only.
+ * Picks and Go verdicts are reported separately: they are different claims.
  */
 
 export async function openPaper(b: Briefing) {
   if (!b.picks.length) return;
   const rows = await readPaper();
-  const have = new Set(rows.filter((r) => r.day === b.day).map((r) => r.occ));
+  const have = new Set(rows.filter((r) => r.day === b.day && (r.source ?? "pick") === "pick").map((r) => r.occ));
   let added = 0;
   for (const p of b.picks) {
     const entry = p.contract.ask || p.contract.mid;
@@ -52,10 +57,47 @@ export async function openPaper(b: Briefing) {
       status: "open",
       mark: p.contract.mid || entry,
       paused: b.paused,
+      source: "pick",
     });
     added++;
   }
   if (added) await writePaper(rows.slice(-500));
+}
+
+/** Buys a Go verdict on paper, the first time that contract goes Go on a given day. */
+export async function openPaperGo(c: IdeaCheck) {
+  const k = c.contract;
+  if (c.verdict !== "go" || !k || !c.horizon) return;
+  const entry = k.ask || k.mid;
+  if (!(entry > 0)) return;
+  const day = etDay();
+  const rows = await readPaper();
+  if (rows.some((r) => r.source === "go" && r.day === day && r.occ === k.occ)) return;
+  const r = exitRules(c.horizon);
+  rows.push({
+    id: `paper:go:${day}:${k.occ}`,
+    day,
+    at: Date.now(),
+    symbol: c.idea.symbol,
+    direction: k.type === "call" ? "bullish" : "bearish",
+    horizon: c.horizon,
+    occ: k.occ,
+    type: k.type,
+    strike: k.strike,
+    expiration: k.expiration,
+    // the plan's size, so every Go is measured on the same footing whatever was typed into Watch
+    qty: Math.max(1, c.planSize?.qty ?? 1),
+    entry,
+    target: Math.ceil(entry * (1 + r.target) * 100) / 100,
+    stop: Math.floor(entry * (1 - r.stop) * 100) / 100,
+    sellByAt: sellBy(c.horizon, day, k.expiration).at,
+    status: "open",
+    mark: k.mid || entry,
+    source: "go",
+    score: c.score,
+    entryTag: c.entry,
+  });
+  await writePaper(rows.slice(-500));
 }
 
 /** Marks open paper trades and closes any that hit an exit. Called by the watcher once a minute. */
@@ -109,6 +151,11 @@ export async function paperView(): Promise<PaperView> {
       return { ...r, pnl: (px - r.entry) * 100 * r.qty, pnlPct: r.entry > 0 ? px / r.entry - 1 : 0 };
     })
     .sort((a, b) => b.at - a.at);
+  const of = (source: "pick" | "go") => summarize(trades.filter((t) => (t.source ?? "pick") === source));
+  return { trades, ...summarize(trades), groups: { pick: of("pick"), go: of("go") } };
+}
+
+function summarize(trades: PaperView["trades"]): { stats: PaperStats; curve: PaperCurve } {
   const closed = trades.filter((t) => t.status === "closed");
   const open = trades.filter((t) => t.status === "open");
   const wins = closed.filter((t) => t.pnl > 0);
@@ -124,7 +171,6 @@ export async function paperView(): Promise<PaperView> {
   const curve = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([day, pnl]) => ({ day, pnl, cum: (cum += pnl) }));
 
   return {
-    trades,
     stats: {
       n: trades.length,
       open: open.length,
