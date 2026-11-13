@@ -6,7 +6,7 @@ import { readWatch, writeWatch } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-const MAX_IDEAS = 20;
+const MAX_IDEAS = 12;
 const bad = (error: string, status = 400) => Response.json({ error }, { status });
 
 /** The watchlist with a live judgement of every idea, plus the market backdrop. */

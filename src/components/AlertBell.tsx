@@ -129,9 +129,10 @@ export function AlertBell() {
           <div className="space-y-2.5 border-t border-line px-4 py-3 text-[12.5px]">
             <Toggle label="Position calls that need action (sell, trim, cut)" on={data.settings.verdicts} set={(v) => save({ verdicts: v })} />
             <Toggle label="Morning picks at 9:45 ET" on={data.settings.picks} set={(v) => save({ picks: v })} />
+            <Toggle label="Pre-market brief 9:00 and round-up 4:05 pm ET" on={data.settings.brief} set={(v) => save({ brief: v })} />
             <Toggle label="Daily loss limit reached" on={data.settings.risk} set={(v) => save({ risk: v })} />
             <div className="flex items-center justify-between gap-3">
-              <span className="text-muted">New signals at conviction</span>
+              <span className="text-muted">New signals, judged for entry, at conviction</span>
               <select
                 value={data.settings.signalMin}
                 onChange={(e) => save({ signalMin: Number(e.target.value) })}

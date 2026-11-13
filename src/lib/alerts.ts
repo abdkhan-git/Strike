@@ -1,4 +1,6 @@
-import { checkAll } from "./check";
+import { buildBrief } from "./brief";
+import { checkAll, checkContract } from "./check";
+import { contractText } from "./instruction";
 import { contractLabel, pct, usd } from "./format";
 import { signals } from "./market";
 import { latestBriefing, runBriefing } from "./picks";
@@ -7,8 +9,8 @@ import { currentPlan } from "./plan";
 import { tradeViews } from "./positions";
 import { etDay, session } from "./session";
 import { recordSignals, scoreTrack } from "./track";
-import { readAlerts, readAlertSettings, readWatch, writeAlerts } from "./store";
-import type { Alert, AlertSettings, AlertsView, Horizon } from "./types";
+import { readAlerts, readAlertSettings, readWatch, writeAlerts, writeWatch } from "./store";
+import type { Alert, AlertSettings, AlertsView, Horizon, Signal, TradeView } from "./types";
 
 /**
  * Background watcher. Once a minute while the market is open (plus the hour before and
@@ -24,7 +26,7 @@ const EVERY = 60_000;
 const KEEP = 200;
 const HORIZON: Record<Horizon, string> = { eod: "today", week: "this week", month: "1 month", quarter: "2 months" };
 
-export const DEFAULT_SETTINGS: AlertSettings = { verdicts: true, signalMin: 80, risk: true, phone: true, picks: true };
+export const DEFAULT_SETTINGS: AlertSettings = { verdicts: true, signalMin: 80, risk: true, phone: true, picks: true, brief: true };
 
 type State = {
   v?: number;
@@ -40,11 +42,14 @@ type State = {
   signalsSeen: Set<string>;
   day: string;
   riskSent: boolean;
+  /** the day's pre-market brief and post-market round-up have gone out */
+  briefPre: boolean;
+  briefPost: boolean;
 };
 
 // On globalThis so a hot reload in development does not start a second timer. The version
 // resets the state (and stops the old timer) when this file's shape changes.
-const VERSION = 5;
+const VERSION = 6;
 const g = globalThis as { __strikeWatch?: State & { v?: number } };
 if (g.__strikeWatch && g.__strikeWatch.v !== VERSION) {
   clearInterval(g.__strikeWatch.timer);
@@ -58,6 +63,8 @@ const state: State = (g.__strikeWatch ??= {
   signalsSeen: new Set(),
   day: "",
   riskSent: false,
+  briefPre: false,
+  briefPost: false,
 });
 
 export async function alertSettings(): Promise<AlertSettings> {
@@ -78,7 +85,7 @@ async function pushPhone(a: Alert) {
       body: a.body,
       headers: {
         Title: a.title.replace(/[^\x20-\x7E]/g, ""),
-        Priority: a.tone === "down" || a.kind === "risk" || a.kind === "picks" ? "high" : "default",
+        Priority: a.title.startsWith("BUY NOW") ? "urgent" : a.tone === "down" || a.kind === "risk" || a.kind === "picks" ? "high" : "default",
         Tags: a.tone === "up" ? "chart_with_upwards_trend" : a.tone === "down" ? "warning" : "bell",
         ...(base && a.href ? { Click: base + a.href } : {}),
       },
@@ -112,6 +119,8 @@ async function runCheck() {
       state.day = today;
       state.signalsSeen.clear();
       state.riskSent = false;
+      state.briefPre = false;
+      state.briefPost = false;
     }
     const out: Omit<Alert, "id" | "at" | "read">[] = [];
     const trades = await tradeViews();
@@ -143,13 +152,7 @@ async function runCheck() {
         if (state.signalsSeen.has(key)) continue;
         state.signalsSeen.add(key);
         if (!state.primed) continue;
-        out.push({
-          kind: "signal",
-          tone: s.direction === "bullish" ? "up" : "down",
-          title: `${s.symbol} ${s.direction}, ${HORIZON[s.horizon]} (conviction ${s.conviction})`,
-          body: s.reasons.slice(0, 2).join(". ") + ".",
-          href: `/s/${s.symbol}`,
-        });
+        out.push(await signalAlert(s, trades));
       }
     }
 
@@ -193,17 +196,33 @@ async function runCheck() {
       for (const c of await checkAll(ideas)) {
         const before = state.watch.get(c.idea.id);
         state.watch.set(c.idea.id, c.verdict);
-        if (!state.primed || c.verdict !== "go" || before === "go" || before === undefined) continue;
+        // nothing to say about a contract you already bought: Positions takes over from here
+        if (!state.primed || c.held || c.verdict !== "go" || before === "go" || before === undefined) continue;
         out.push({
           kind: "watch",
           tone: c.idea.type === "call" ? "up" : "down",
-          title: `Go: ${c.idea.symbol} ${c.idea.strike}${c.idea.type === "call" ? "C" : "P"} lines up (score ${c.score})`,
-          body: c.order?.text ?? c.action,
+          title: `BUY NOW: ${contractText({ underlying: c.idea.symbol, ...c.idea })} (score ${c.score})`,
+          body: `Every check lines up right now. ${c.order?.text ?? c.action}`,
           href: "/watch",
         });
       }
     }
     for (const id of state.watch.keys()) if (!ideas.some((i) => i.id === id)) state.watch.delete(id);
+    // ideas Strike queued from a signal only live for the day they were added
+    if (ideas.some((i) => i.source === "signal" && etDay(i.createdAt) !== today)) await writeWatch((await readWatch()).filter((i) => i.source !== "signal" || etDay(i.createdAt) === today));
+
+    // pre-market brief at 9:00 ET and post-market round-up at 4:05 pm ET, once each
+    if (settings.brief && state.primed) {
+      const mins = hh * 60 + mm;
+      const pre = sess === "Pre-market" && mins >= 9 * 60 && !state.briefPre;
+      const post = sess === "After hours" && mins >= 16 * 60 + 5 && mins < 18 * 60 && !state.briefPost;
+      if (pre || post) {
+        if (pre) state.briefPre = true;
+        else state.briefPost = true;
+        const brief = await buildBrief().catch(() => undefined);
+        if (brief) out.push({ kind: "brief", tone: "neutral", title: brief.push.title, body: brief.push.body, href: "/brief" });
+      }
+    }
 
     // paper lab: manage every pick by the exit rules
     await markPaper().catch((e) => console.warn("[paper] mark failed:", e instanceof Error ? e.message : e));
@@ -217,6 +236,51 @@ async function runCheck() {
     await record(out, settings);
   } catch (e) {
     console.warn("[alerts] check failed:", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * A new strong signal, with a verdict on entering it right now. The lead contract is run
+ * through the same trade check as the Watch page at the plan's size:
+ *   go    -> "BUY NOW" with the exact order
+ *   late  -> "Too late to chase": the move has mostly happened
+ *   wait  -> "Not yet", and the contract is queued in Watch so a later Go alerts you
+ *   skip  -> the signal is reported with the reason it is not a trade
+ */
+async function signalAlert(s: Signal, trades: TradeView[]): Promise<Omit<Alert, "id" | "at" | "read">> {
+  const up = s.direction === "bullish";
+  const base = {
+    kind: "signal" as const,
+    tone: up ? ("up" as const) : ("down" as const),
+    title: `${s.symbol} ${s.direction}, ${HORIZON[s.horizon]} (conviction ${s.conviction})`,
+    body: s.reasons.slice(0, 2).join(". ") + ".",
+    href: `/s/${s.symbol}`,
+  };
+  const lead = s.lead;
+  if (!lead) return base;
+  try {
+    const plan = await currentPlan(trades);
+    const dollars = Math.max(lead.ask * 100, plan.budget > 0 ? plan.budget : plan.equity * plan.settings.riskPerTrade);
+    const idea = { id: `signal:${lead.occ}`, symbol: s.symbol, type: lead.type, strike: lead.strike, expiration: lead.expiration, dollars, createdAt: Date.now() };
+    const c = await checkContract(idea, { plan });
+    const name = contractText(lead);
+    const flow = `Flow: ${s.reasons[0]}.`;
+    const failing = c.items.filter((i) => i.status === "fail").map((i) => i.label.toLowerCase());
+    if (trades.some((t) => t.status === "open" && t.occ === lead.occ)) return { ...base, title: `${base.title}: you already hold ${name}`, href: "/positions" };
+    if (c.verdict === "go")
+      return { ...base, kind: "watch", title: `BUY NOW: ${name} (score ${c.score}, conviction ${s.conviction})`, body: `Every check lines up and the entry is ${c.entry ?? "open"}. ${c.order?.text ?? ""} ${flow}`, href: "/watch" };
+    if (c.entry === "late")
+      return { ...base, tone: "warn", title: `Too late to chase: ${s.symbol} ${s.direction} (conviction ${s.conviction})`, body: `${c.items.find((i) => i.key === "entry")?.detail ?? ""} ${flow}` };
+    if (c.verdict === "wait") {
+      const ideas = await readWatch();
+      const queued = ideas.some((i) => i.symbol === idea.symbol && i.type === idea.type && i.strike === idea.strike && i.expiration === idea.expiration);
+      if (!queued && ideas.length < 12) await writeWatch([{ ...idea, id: crypto.randomUUID(), source: "signal" }, ...ideas]);
+      return { ...base, title: `Not yet: ${name} (score ${c.score}, conviction ${s.conviction})`, body: `${c.action} Queued in Watch: you get a BUY NOW alert if it lines up today. ${flow}`, href: "/watch" };
+    }
+    return { ...base, tone: "neutral", title: `No trade: ${s.symbol} ${s.direction} flow (conviction ${s.conviction})`, body: `${c.headline}${failing.length ? ` (${failing.join(", ")})` : ""}. ${c.action} ${flow}` };
+  } catch (e) {
+    console.warn("[alerts] could not judge the signal:", e instanceof Error ? e.message : e);
+    return base;
   }
 }
 

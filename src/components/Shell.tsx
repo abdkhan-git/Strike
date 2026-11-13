@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Calculator, Crosshair, FlaskConical, LogOut, Radar, Search, Sparkles, Target, Wallet } from "lucide-react";
+import { Crosshair, FlaskConical, LogOut, Newspaper, Radar, Search, Sparkles, Target, Wallet } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -18,12 +18,12 @@ import { TickerTape } from "./TickerTape";
 import { Toaster } from "./Toaster";
 
 const NAV = [
+  { href: "/brief", label: "Brief", icon: Newspaper },
   { href: "/", label: "Scanner", icon: Radar },
   { href: "/watch", label: "Watch", icon: Crosshair },
   { href: "/plan", label: "Plan", icon: Target },
   { href: "/positions", label: "Positions", icon: Wallet },
   { href: "/lab", label: "Lab", icon: FlaskConical },
-  { href: "/calculator", label: "Calculator", icon: Calculator },
 ];
 
 /** Market session and data feed in one quiet chip. */
@@ -149,7 +149,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   if (bare) return <main className="h-full overflow-auto">{children}</main>;
 
-  const active = (href: string) => (href === "/" ? path === "/" || path.startsWith("/s/") : path.startsWith(href));
+  // the calculator is the detail view of one contract, reached from Watch and from any contract link
+  const active = (href: string) =>
+    href === "/" ? path === "/" || path.startsWith("/s/") : href === "/watch" ? path.startsWith("/watch") || path.startsWith("/calculator") : path.startsWith(href);
 
   return (
     <div className="flex h-full flex-col">

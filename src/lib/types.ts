@@ -459,7 +459,7 @@ export interface TrackView {
   recent: TrackRecord[];
 }
 
-export type AlertKind = "verdict" | "signal" | "risk" | "test" | "picks" | "watch";
+export type AlertKind = "verdict" | "signal" | "risk" | "test" | "picks" | "watch" | "brief";
 
 export interface Alert {
   id: string;
@@ -484,6 +484,8 @@ export interface AlertSettings {
   phone: boolean;
   /** morning picks at 9:45 ET */
   picks: boolean;
+  /** pre-market brief at 9:00 ET and post-market round-up at 4:05 pm ET */
+  brief: boolean;
 }
 
 export interface AlertsView {

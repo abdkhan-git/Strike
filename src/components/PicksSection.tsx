@@ -18,6 +18,7 @@ type PicksData = {
   briefing?: Briefing;
   live: Record<string, { mark: number; ret: number; spot: number; verdict?: Verdict; contract?: Enriched }>;
   track: TrackView;
+  held?: string[];
 };
 
 const HORIZON: Record<Horizon, string> = { eod: "Today", week: "This week", month: "1 month", quarter: "2 months" };
@@ -122,6 +123,11 @@ export function PicksSection({ paused, needToday }: { paused?: boolean; needToda
                   {up ? "Bullish" : "Bearish"}
                 </span>
                 <Badge tone="mute">{HORIZON[p.horizon]}</Badge>
+                {data.held?.includes(p.contract.occ) && (
+                  <Link href="/positions">
+                    <Badge tone="accent">You hold this · manage in Positions</Badge>
+                  </Link>
+                )}
                 <span className="flex items-center gap-2 text-[12px] text-faint">
                   conviction <Meter value={p.score} tone={up ? "up" : "down"} />
                 </span>

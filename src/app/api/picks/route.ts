@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { contractOf, provider } from "@/lib/market";
-import { readTheses } from "@/lib/store";
+import { readTheses, readTrades } from "@/lib/store";
 import { analyze } from "@/lib/thesis";
 import { buildBriefing, latestBriefing, runBriefing } from "@/lib/picks";
 import { trackView } from "@/lib/track";
@@ -60,7 +60,9 @@ export async function GET() {
       );
       live = Object.fromEntries(rows.filter((r) => r !== undefined));
     }
-    return Response.json({ briefing, live, track });
+    // contracts from the picks that are already open positions, so the page can say so
+    const held = (await readTrades()).filter((t) => t.status === "open").map((t) => t.occ);
+    return Response.json({ briefing, live, track, held });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Could not load picks" }, { status: 502 });
   }

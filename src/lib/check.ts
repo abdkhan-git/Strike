@@ -1,5 +1,6 @@
 import { brokerView } from "./broker";
 import { bsPrice } from "./bs";
+import { cached } from "./cache";
 import { marketContext } from "./context";
 import type { CheckItem, Idea, IdeaCheck, MarketContext } from "./desk";
 import { pct, signedPct, usd } from "./format";
@@ -7,6 +8,7 @@ import { buyInstruction, horizonOfDte } from "./instruction";
 import { chartOf, symbolView } from "./market";
 import { currentPlan } from "./plan";
 import { session } from "./session";
+import { readTrades } from "./store";
 import { analyze } from "./thesis";
 import type { PlanView } from "./types";
 
@@ -20,6 +22,7 @@ import type { PlanView } from "./types";
  *   momentum    the 15-minute read agrees (decisive for same-day expiries)
  *   flow        today's option money leans the same way
  *   reversal    no strong sign the move is ending
+ *   entry       how much of a normal day's move is already done: early, in play, or chasing
  *   reach       the break-even is inside a normal move for the time left
  *   decay       how much the position loses per hour/day if the stock stands still
  *   price       implied volatility against what the stock has really been doing
@@ -124,6 +127,32 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
       10,
       hit && a.reversal.risk >= 0.5,
     );
+  }
+
+  // --- entry: has the move already happened? -------------------------------------
+  let entry: IdeaCheck["entry"];
+  const atr = a?.levels.atr;
+  if (atr && atr > 0) {
+    const q = view.summary.quote;
+    const dir = call ? 1 : -1;
+    const used = ((S - q.prevClose) * dir) / atr; // share of a normal day's range already travelled our way
+    const atExtreme = o ? (call ? o.dayPos >= 0.9 : o.dayPos <= 0.1) : false;
+    const stretched = o ? o.vsVwap * dir > 0.005 : false;
+    const hot = o ? (call ? o.rsi >= 75 : o.rsi <= 25) : false;
+    const movedTxt = `${idea.symbol} is ${signedPct(q.changePct)} today, ${Math.abs(used).toFixed(1)}× its normal daily range ${used >= 0 ? "in this trade's direction" : "against this trade"}`;
+    if (used >= 1.5 || (used >= 1 && atExtreme && (stretched || hot))) {
+      entry = "late";
+      add("entry", "Entry timing", "fail", `Late: ${movedTxt}${atExtreme ? ", sitting at the day's extreme" : ""}${hot ? ` with RSI ${o!.rsi.toFixed(0)}` : ""}. Most of the move is done: buying here is chasing. Wait for a pullback toward ${o ? usd(o.vwap) : "the day's average"} or pass.`, 10);
+    } else if (used >= 0.9) {
+      entry = "late";
+      add("entry", "Entry timing", "warn", `Getting late: ${movedTxt}. There is less left than there was; a pullback entry is better than buying strength here.`, 10);
+    } else if (used <= -0.5) {
+      entry = "against";
+      add("entry", "Entry timing", "warn", `Fighting today's move: ${movedTxt}. This is a bet on a reversal, not on the move continuing.`, 10);
+    } else {
+      entry = used < 0.3 ? "early" : "in play";
+      add("entry", "Entry timing", "pass", `${entry === "early" ? "Early" : "In play"}: ${movedTxt}${stretched ? ", though it sits above today's average price" : ""}. There is still room in a normal day.`, 10);
+    }
   }
 
   // --- reach: break-even against a normal move ------------------------------------
@@ -293,6 +322,7 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
     headline,
     action,
     items: items.map(({ key, label, status, detail }) => ({ key, label, status, detail })),
+    entry,
     contract: c,
     spot: S,
     horizon,
@@ -315,16 +345,39 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
   };
 }
 
-/** Every idea on the watchlist, judged with one shared read of the plan and the market. */
+/**
+ * One contract judged at a dollar size, shared for a few seconds between the Watch page,
+ * the calculator and the watcher so the option chain is not fetched once for each of them.
+ */
+export function checkContract(idea: Idea, shared?: Parameters<typeof checkIdea>[1]): Promise<IdeaCheck> {
+  const key = `check|${idea.symbol}|${idea.type}|${idea.strike}|${idea.expiration}|${Math.round(idea.dollars)}`;
+  return cached(key, 8_000, () => checkIdea(idea, shared)).then((c) => ({ ...c, idea }));
+}
+
+/**
+ * Every idea on the watchlist, judged with one shared read of the plan and the market.
+ * An idea whose contract is already an open position is marked as held, so the page can
+ * point to Positions and the watcher stops alerting on it.
+ */
 export async function checkAll(ideas: Idea[]): Promise<IdeaCheck[]> {
   if (!ideas.length) return [];
-  const [plan, ctx, broker] = await Promise.all([currentPlan().catch(() => undefined), marketContext().catch(() => undefined), brokerView().catch(() => undefined)]);
+  const [plan, ctx, broker, trades] = await Promise.all([
+    currentPlan().catch(() => undefined),
+    marketContext().catch(() => undefined),
+    brokerView().catch(() => undefined),
+    readTrades().catch(() => []),
+  ]);
   const cash = broker?.accounts.reduce((s, x) => s + (x.cash ?? 0), 0) ?? 0;
+  const open = trades.filter((t) => t.status === "open");
   return Promise.all(
-    ideas.map((idea) =>
-      checkIdea(idea, { plan, ctx, cash }).catch(
+    ideas.map(async (idea) => {
+      const c = await checkContract(idea, { plan, ctx, cash }).catch(
         (e): IdeaCheck => ({ idea, verdict: "unknown", score: 0, headline: "Could not check this right now", action: e instanceof Error ? e.message : "Try again shortly.", items: [], asOf: Date.now() }),
-      ),
-    ),
+      );
+      const mine = open.filter((t) => t.underlying === idea.symbol && t.type === idea.type && t.strike === idea.strike && t.expiration === idea.expiration);
+      if (!mine.length) return c;
+      const qty = mine.reduce((s, t) => s + t.qty, 0);
+      return { ...c, held: { qty, entryPrice: mine.reduce((s, t) => s + t.entryPrice * t.qty, 0) / qty } };
+    }),
   );
 }

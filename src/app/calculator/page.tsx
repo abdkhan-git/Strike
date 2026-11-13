@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CheckStrip } from "@/components/CheckStrip";
 import { NewsPanel } from "@/components/NewsPanel";
 import { Button, CatalystTag, Change, Chip, PageHeader, Panel, PanelHeader, Segmented } from "@/components/ui";
 import { toast } from "@/components/Toaster";
@@ -534,6 +535,8 @@ function OrderTicket({
           </div>
         ))}
       </div>
+
+      <CheckStrip c={c} dollars={cost} />
 
       <ExitPlan c={c} qty={qty} price={P} />
 

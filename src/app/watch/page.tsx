@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { Check, Minus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { ContextPanel } from "@/components/ContextPanel";
 import { LogTradeDialog, type Loggable } from "@/components/LogTradeDialog";
 import { toast } from "@/components/Toaster";
 import { Badge, Button, Change, Chip, Page, PageError, PageHeader, PageSkeleton, Panel, PanelHeader, Ring, Segmented, fieldClass, ticketHref } from "@/components/ui";
@@ -252,71 +253,7 @@ function IdeaForm({ onAdded }: { onAdded: () => void }) {
   );
 }
 
-/** Regime, volatility, what is scheduled, and anything that should make you slow down today. */
-function ContextPanel({ ctx }: { ctx: MarketContext }) {
-  const regimeTone = ctx.regime.label === "Uptrend" ? "up" : ctx.regime.label === "Downtrend" ? "down" : "mute";
-  const volTone = ctx.vol.label === "Calm" || ctx.vol.label === "Normal" ? "mute" : ctx.vol.label === "Elevated" ? "warn" : "down";
-  return (
-    <Panel>
-      <PanelHeader title="Market backdrop" sub={ctx.session} />
-      <div className="grid grid-cols-2 gap-px bg-line">
-        <div className="bg-panel px-5 py-4">
-          <div className="text-[12px] text-muted">Index regime</div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span className="text-[17px] font-semibold tracking-[-0.02em]">{ctx.regime.label}</span>
-            <Badge tone={regimeTone}>
-              {ctx.regime.score > 0 ? "+" : ""}
-              {ctx.regime.score}
-            </Badge>
-          </div>
-          <div className="mt-1.5 text-[11.5px] leading-snug text-faint">{ctx.regime.note}</div>
-        </div>
-        <div className="bg-panel px-5 py-4">
-          <div className="text-[12px] text-muted">Volatility</div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span className="text-[17px] font-semibold tracking-[-0.02em]">{ctx.vol.label}</span>
-            <Badge tone={volTone}>{pct(ctx.vol.atmIv, 0)} IV</Badge>
-          </div>
-          <div className="mt-1.5 text-[11.5px] leading-snug text-faint">{ctx.vol.note}</div>
-        </div>
-      </div>
-      {ctx.spy && (
-        <div className="num flex flex-wrap gap-x-5 gap-y-1 border-t border-line px-5 py-3 text-[12px] text-muted">
-          <span>
-            SPY <span className="text-fg">{usd(ctx.spy.price)}</span> <Change value={ctx.spy.changePct} />
-          </span>
-          <span>implied move ±{pct(ctx.spy.expectedMovePct)}</span>
-          {ctx.spy.vsVwap !== undefined && <span>{signedPct(ctx.spy.vsVwap)} vs today&apos;s average</span>}
-        </div>
-      )}
-      {ctx.cautions.length > 0 && (
-        <ul className="space-y-2 border-t border-line px-5 py-3">
-          {ctx.cautions.map((c) => (
-            <li key={c} className="rounded-xl bg-warn/10 px-3.5 py-2.5 text-[12.5px] leading-snug text-warn">
-              {c}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="border-t border-line px-5 py-3">
-        <div className="mb-2 text-[12px] font-medium text-muted">On the calendar</div>
-        {ctx.events.length ? (
-          <ul className="space-y-1.5 text-[12.5px]">
-            {ctx.events.slice(0, 8).map((e) => (
-              <li key={e.date + e.label} className="flex items-baseline gap-3">
-                <span className={clsx("num w-16 shrink-0", e.inDays === 0 ? "font-semibold text-fg" : "text-faint")}>{e.inDays === 0 ? "Today" : e.inDays === 1 ? "Tomorrow" : shortDate(e.date)}</span>
-                <span className={e.kind === "earnings" ? "text-muted" : "text-fg"}>{e.label}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[12.5px] text-faint">Nothing scheduled in the next ten days.</p>
-        )}
-        <p className="mt-2.5 text-[11px] leading-snug text-faint">Fed days and earnings are dated; the jobs report and options expiry follow their usual Fridays. CPI is not listed.</p>
-      </div>
-    </Panel>
-  );
-}
+const ENTRY = { early: "Early", "in play": "In play", late: "Late", against: "Against today's move" } as const;
 
 const STATUS_ICON = {
   pass: <Check size={12} strokeWidth={3} />,
@@ -349,11 +286,23 @@ function IdeaCard({ c, onRemove, onLog }: { c: IdeaCheck; onRemove: () => void; 
                   {i.symbol} <span className={up ? "text-up" : "text-down"}>{contractLabel(i)}</span>
                 </Link>
                 {c.spot !== undefined && <span className="num text-[12.5px] text-muted">{usd(c.spot)}</span>}
+                {c.entry && <Badge tone={c.entry === "late" ? "down" : c.entry === "against" ? "warn" : "mute"}>{ENTRY[c.entry]}</Badge>}
+                {i.source === "signal" && <Badge tone="accent" title="Strike queued this from a strong signal that was not yet a buy. It is removed after today.">From a signal</Badge>}
               </div>
               <div className="mt-1.5 text-[15px] font-semibold leading-snug tracking-[-0.01em]">{c.headline}</div>
               <p className="mt-1 text-[13px] leading-relaxed text-muted">{c.action}</p>
             </div>
           </div>
+
+          {c.held && (
+            <Link href="/positions" className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-accent/12 px-4 py-3 text-[13px] transition-opacity hover:opacity-80">
+              <span>
+                <span className="font-semibold text-accent">You hold {c.held.qty} of these</span>
+                <span className="text-muted"> at {usd(c.held.entryPrice)}. The live sell or hold call is in Positions; the read here is for adding more.</span>
+              </span>
+              <span className="shrink-0 font-medium text-accent">Open</span>
+            </Link>
+          )}
 
           {o && c.contract && (
             <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-raised/50 px-4 py-3.5 sm:grid-cols-4">

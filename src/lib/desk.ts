@@ -12,6 +12,8 @@ export interface Idea {
   /** dollars the user wants to put on it */
   dollars: number;
   createdAt: number;
+  /** queued by Strike from a strong signal that was not yet a buy; cleared after the day it was added */
+  source?: "signal";
 }
 
 export interface CheckItem {
@@ -32,6 +34,10 @@ export interface IdeaCheck {
   /** what to do about it, in one or two sentences */
   action: string;
   items: CheckItem[];
+  /** where the move stands: is there still room, or is this chasing */
+  entry?: "early" | "in play" | "late" | "against";
+  /** the user already holds this contract (from the trade log) */
+  held?: { qty: number; entryPrice: number };
   contract?: Enriched;
   spot?: number;
   horizon?: Horizon;
@@ -111,4 +117,26 @@ export interface PaperView {
   };
   /** cumulative closed P/L by day, oldest first */
   curve: { day: string; pnl: number; cum: number }[];
+}
+
+/** The pre-market brief or post-market round-up: one page of what matters for the session. */
+export interface Brief {
+  asOf: number;
+  day: string;
+  /** pre: before the open. open: session running. post: after the close. closed: weekend or holiday */
+  phase: "pre" | "open" | "post" | "closed";
+  title: string;
+  /** the few sentences worth reading if you read nothing else */
+  lines: string[];
+  context: MarketContext;
+  movers: { symbol: string; price: number; changePct: number }[];
+  plan: { equity: number; budget: number; needToday: number; todayPnl: number; todayOpenPnl: number; halted: boolean; style: string; notes: string[] };
+  positions: { id: string; label: string; type: OptType; qty: number; pnl: number; pnlPct: number; call?: string; tone?: "up" | "down" | "warn" | "neutral"; doNow?: string; sellBy?: string; needsAction: boolean }[];
+  picks: { symbol: string; label: string; type: OptType; day: string; entry: number; pnl?: number; pnlPct?: number; status: string; held: boolean }[];
+  /** today's closed trades */
+  result?: { pnl: number; trades: number; wins: number };
+  nextSession: string;
+  checklist: { when: string; text: string }[];
+  /** the same brief as a phone notification */
+  push: { title: string; body: string };
 }
