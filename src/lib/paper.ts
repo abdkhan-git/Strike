@@ -86,7 +86,8 @@ export async function openPaperGo(c: IdeaCheck) {
     strike: k.strike,
     expiration: k.expiration,
     // the plan's size, so every Go is measured on the same footing whatever was typed into Watch
-    qty: Math.max(1, c.planSize?.qty ?? 1),
+    qty: Math.max(1, Math.floor((c.planSize?.qty ?? 1) * (c.grade === "B" ? 0.5 : 1))),
+    lane: c.lane,
     entry,
     target: Math.ceil(entry * (1 + r.target) * 100) / 100,
     stop: Math.floor(entry * (1 - r.stop) * 100) / 100,
@@ -95,7 +96,7 @@ export async function openPaperGo(c: IdeaCheck) {
     mark: k.mid || entry,
     source: "go",
     score: c.score,
-    entryTag: c.entry,
+    entryTag: [c.grade ? `${c.grade} setup` : "", c.entry ?? ""].filter(Boolean).join(", "),
   });
   await writePaper(rows.slice(-500));
 }

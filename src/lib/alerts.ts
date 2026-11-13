@@ -203,8 +203,8 @@ async function runCheck() {
         out.push({
           kind: "watch",
           tone: c.idea.type === "call" ? "up" : "down",
-          title: `BUY NOW: ${contractText({ underlying: c.idea.symbol, ...c.idea })} (score ${c.score})`,
-          body: `Every check lines up right now. ${c.order?.text ?? c.action}`,
+          title: `BUY NOW${c.grade === "B" ? " (half size)" : ""}: ${contractText({ underlying: c.idea.symbol, ...c.idea })} (${c.grade ?? ""} setup, score ${c.score})`,
+          body: c.grade === "B" ? c.action : `Every check lines up right now. ${c.order?.text ?? c.action}`,
           href: "/watch",
         });
       }
@@ -271,7 +271,7 @@ async function signalAlert(s: Signal, trades: TradeView[]): Promise<Omit<Alert, 
     if (trades.some((t) => t.status === "open" && t.occ === lead.occ)) return { ...base, title: `${base.title}: you already hold ${name}`, href: "/positions" };
     if (c.verdict === "go") await openPaperGo(c).catch(() => {});
     if (c.verdict === "go")
-      return { ...base, kind: "watch", title: `BUY NOW: ${name} (score ${c.score}, conviction ${s.conviction})`, body: `Every check lines up and the entry is ${c.entry ?? "open"}. ${c.order?.text ?? ""} ${flow}`, href: "/watch" };
+      return { ...base, kind: "watch", title: `BUY NOW${c.grade === "B" ? " (half size)" : ""}: ${name} (${c.grade ?? ""} setup, score ${c.score}, conviction ${s.conviction})`, body: `${c.grade === "B" ? c.action : `Every check lines up and the entry is ${c.entry ?? "open"}. ${c.order?.text ?? ""}`} ${flow}`, href: "/watch" };
     if (c.entry === "late")
       return { ...base, tone: "warn", title: `Too late to chase: ${s.symbol} ${s.direction} (conviction ${s.conviction})`, body: `${c.items.find((i) => i.key === "entry")?.detail ?? ""} ${flow}` };
     if (c.verdict === "wait") {

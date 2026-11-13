@@ -173,6 +173,11 @@ export default function LabPage() {
                         ) : (
                           <Badge tone="mute">Pick</Badge>
                         )}
+                        {t.lane === "lottery" && (
+                          <Badge tone="warn" className="ml-1.5">
+                            Lottery
+                          </Badge>
+                        )}
                       </td>
                       <td className="text-left">
                         <Link href={`/s/${t.symbol}`} className="font-semibold hover:underline">

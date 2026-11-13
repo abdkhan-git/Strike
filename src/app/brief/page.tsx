@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { ContextPanel } from "@/components/ContextPanel";
+import { Check, X } from "lucide-react";
 import { Badge, Button, Page, PageError, PageHeader, PageSkeleton, Panel, PanelHeader, Stat, StatStrip } from "@/components/ui";
 import type { Brief } from "@/lib/desk";
 import type { FocusItem } from "@/lib/focus";
@@ -34,12 +35,22 @@ const LEAN = {
   "two-way": { label: "Two-way", tone: "warn", edge: "edge-warn" },
 } as const;
 const VOTE = { 1: "bg-up", 0: "bg-line-strong", "-1": "bg-down" } as const;
+const STATUS_BG = { up: "bg-up/10", down: "bg-down/10", warn: "bg-warn/10", neutral: "bg-raised/60" } as const;
+const STATUS_TEXT = { up: "text-up", down: "text-down", warn: "text-warn", neutral: "text-fg" } as const;
 
 /** The names most likely to make an outsized move today, with the evidence and the levels that confirm or break it. */
 function Focus({ items }: { items: FocusItem[] }) {
   return (
     <Panel>
-      <PanelHeader title="Ones to watch" sub="Most likely to move big today, and which way the evidence leans" />
+      <PanelHeader
+        title="Ones to watch"
+        sub="Most likely to move big today, which way the evidence leans, and whether the move is holding"
+        right={
+          <span className="flex items-center gap-1.5 text-[11.5px] text-faint">
+            <span className="pulse-dot size-1.5 rounded-full bg-up" /> live
+          </span>
+        }
+      />
       {items.length === 0 ? (
         <p className="px-5 py-8 text-center text-[13px] leading-relaxed text-muted">
           Nothing stands out yet: no large gaps, earnings or one-sided flow. This fills in as pre-market trading builds.
@@ -57,11 +68,14 @@ function Focus({ items }: { items: FocusItem[] }) {
                   </Link>
                   <Badge tone={l.tone}>{l.label}</Badge>
                   {f.lean !== "two-way" && <Badge tone={f.confidence === "Strong" ? "up" : "mute"}>{f.confidence}</Badge>}
+                  {f.held && <Badge tone="accent">You hold {f.held.label}</Badge>}
                   {f.catalyst && <Badge tone="warn">Earnings</Badge>}
-                  <span className="num text-[13px]">{usd(f.price)}</span>
+                  <span className="num text-[13px]">
+                    {usd(f.price)} <span className={f.changePct >= 0 ? "text-up" : "text-down"}>{signedPct(f.changePct)}</span>
+                  </span>
                   {f.gap && Math.abs(f.gap.gapAtr) >= 0.3 && (
-                    <span className={clsx("num text-[12.5px]", f.gap.gapPct >= 0 ? "text-up" : "text-down")}>
-                      {signedPct(f.gap.gapPct)} gap · {Math.abs(f.gap.gapAtr).toFixed(1)}× a normal day
+                    <span className="num text-[12px] text-faint">
+                      gapped {signedPct(f.gap.gapPct)} ({Math.abs(f.gap.gapAtr).toFixed(1)}× a normal day)
                     </span>
                   )}
                   <span className="ml-auto flex items-center gap-2 text-[12px] text-faint" title="How likely an outsized move is today, 0-100">
@@ -71,6 +85,70 @@ function Focus({ items }: { items: FocusItem[] }) {
                     </span>
                     <span className="num font-semibold text-fg">{f.move}</span>
                   </span>
+                </div>
+
+                <div className={clsx("mt-3 rounded-xl px-3.5 py-3", f.grade === "A" ? "bg-up/12" : f.grade === "B" ? "bg-accent/12" : "bg-raised/60")}>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span
+                      className={clsx(
+                        "grid size-7 shrink-0 place-items-center rounded-lg text-[14px] font-bold",
+                        f.grade === "A" ? "bg-up text-black" : f.grade === "B" ? "bg-accent text-white" : "bg-line-strong text-muted",
+                      )}
+                      title="A: full size. B: half size. C: watch only."
+                    >
+                      {f.grade}
+                    </span>
+                    <span className={clsx("text-[14px] font-semibold tracking-[-0.01em]", f.grade === "A" ? "text-up" : f.grade === "B" ? "text-accent" : "text-fg")}>
+                      {f.grade === "A"
+                        ? "A setup: full plan size, after it passes Watch"
+                        : f.grade === "B"
+                          ? "B setup: half size, after it passes Watch"
+                          : f.held
+                            ? "Would not be a new buy right now"
+                            : "Not a trade right now: do not buy"}
+                    </span>
+                    <span className="num ml-auto text-[12px] text-muted">
+                      required {f.gate.filter((c) => c.kind === "required" && c.ok).length}/{f.gate.filter((c) => c.kind === "required").length} · confluence{" "}
+                      {f.gate.filter((c) => c.kind === "confluence" && c.ok).length}/{f.gate.filter((c) => c.kind === "confluence").length}
+                    </span>
+                  </div>
+                  <div className="mt-2.5 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                    {(["required", "confluence"] as const).map((kind) => {
+                      const rows = f.gate.filter((c) => c.kind === kind);
+                      if (!rows.length) return null;
+                      return (
+                        <div key={kind}>
+                          <div className="mb-1 text-[11px] font-medium text-faint">{kind === "required" ? "Required: all of these" : "Confluence: sets the size"}</div>
+                          <ul className="space-y-1">
+                            {rows.map((c) => (
+                              <li key={c.label} title={c.note} className="flex items-start gap-2 text-[12px] leading-snug">
+                                <span className={clsx("mt-px grid size-4 shrink-0 place-items-center rounded-full", c.ok ? "bg-up/20 text-up" : kind === "required" ? "bg-down/20 text-down" : "bg-line-strong text-muted")}>
+                                  {c.ok ? <Check size={10} strokeWidth={3.5} /> : <X size={10} strokeWidth={3.5} />}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className={c.ok ? "text-muted" : "font-medium text-fg"}>{c.label}</span>
+                                  {!c.ok && <span className="block text-[11.5px] text-faint">{c.note}</span>}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className={clsx("mt-2 rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed", STATUS_BG[f.live.tone])}>
+                  <span className={clsx("font-semibold", STATUS_TEXT[f.live.tone])}>{f.live.status}.</span> <span className="text-fg/90">{f.live.note}</span>
+                  {f.held && <span className="font-medium text-fg"> {f.held.verdict}</span>}
+                  {(f.live.used !== undefined || f.live.rsi !== undefined) && (
+                    <span className="num mt-1 block text-[11.5px] text-muted">
+                      {f.live.dayLow !== undefined && f.live.dayHigh !== undefined && `Today ${usd(f.live.dayLow)} – ${usd(f.live.dayHigh)}`}
+                      {f.live.used !== undefined && ` · ${Math.round(f.live.used * 100)}% of a normal day used`}
+                      {f.live.vsVwap !== undefined && ` · ${signedPct(f.live.vsVwap)} vs average price`}
+                      {f.live.rsi !== undefined && ` · RSI ${f.live.rsi.toFixed(0)}`}
+                    </span>
+                  )}
                 </div>
 
                 <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -91,6 +169,37 @@ function Focus({ items }: { items: FocusItem[] }) {
                   ))}
                 </ul>
 
+                {f.reach && (f.reach.up || f.reach.down) && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {(["up", "down"] as const).map((k) => {
+                      const r = f.reach?.[k];
+                      if (!r) return null;
+                      const upSide = k === "up";
+                      return (
+                        <div key={k} className="rounded-xl bg-raised/60 px-3.5 py-2.5">
+                          <div className="text-[11.5px] text-faint">
+                            {upSide ? "Upside stretch levels: not targets" : "Downside stretch levels: not targets"}
+                            {r.passed && " (a normal day is already covered)"}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
+                            <span className="num text-[13.5px]">
+                              <span className={clsx("font-semibold", upSide ? "text-up" : "text-down")}>{usd(r.normal)}</span>{" "}
+                              <span className="text-[11.5px] text-muted">
+                                {r.normalOdds !== undefined ? `${Math.round(r.normalOdds * 100)}% chance today` : "normal day"}
+                                {r.normalOdds !== undefined && r.normalOdds < 0.5 ? " (unlikely)" : ""}
+                              </span>
+                            </span>
+                            <span className="num text-[13.5px]">
+                              <span className={clsx("font-semibold", upSide ? "text-up" : "text-down")}>{usd(r.big)}</span>{" "}
+                              <span className="text-[11.5px] text-muted">{r.bigOdds !== undefined ? `${Math.round(r.bigOdds * 100)}% chance today` : "big day"}</span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[12.5px]">
                   {f.levels.confirm && (
                     <span>
@@ -102,8 +211,8 @@ function Focus({ items }: { items: FocusItem[] }) {
                       <span className="font-medium text-down">Wrong if</span> <span className="text-muted">{f.levels.wrong}</span>
                     </span>
                   )}
-                  <Link href={`/watch?sym=${f.symbol}&side=${side}`} className="ml-auto">
-                    <Button>Check a trade</Button>
+                  <Link href={`/watch?sym=${f.symbol}&side=${side}${f.size > 0 ? `&size=${f.size}` : ""}`} className="ml-auto">
+                    <Button variant={f.ready ? "primary" : "ghost"}>{f.ready ? "Check it in Watch" : "Look at it in Watch"}</Button>
                   </Link>
                 </div>
               </li>
@@ -112,9 +221,13 @@ function Focus({ items }: { items: FocusItem[] }) {
         </ul>
       )}
       <p className="border-t border-line px-5 py-3 text-[11.5px] leading-relaxed text-faint">
-        Ranked by how likely an outsized move is (gap size, pre-market volume, earnings, headlines, option flow), not by how sure the direction is. Each dot is one
-        source: green bullish, red bearish, grey no view. Strong means three or more agree and none disagree. Rumours count only once they are reported in headlines.
-        None of this is a buy on its own: put the trade through Watch after 9:45.
+        A lean is not a trade. Four conditions are required: price has confirmed, the move is not extended, the market is not against it, and it is inside the
+        9:45–3:00 window. Five more are confluence: the full analysis, option flow in size for that stock, its gap history, no reversal warning, and beating the
+        index. Required plus four or five is an A setup at full size; plus two or three is a B at half size; anything else is watch only. Ranked by how likely an outsized move is (gap size, pre-market volume, earnings, headlines, option flow), not by how sure the direction is. Each dot is one
+        source: green bullish, red bearish, grey no view. Strong means three or more agree and none disagree. “Normal day” is a full normal day&apos;s range (ATR) measured
+        from today&apos;s low (up) or high (down), “big day” one and a half; the odds are the options market&apos;s chance of the price touching that level before the close. Rumours count only once they are reported in headlines.
+        The status line and levels refresh every 20 seconds from live prices; which names are listed and their votes refresh every 3 minutes. Stocks you hold
+        are always listed and judged in the direction of your position. None of this is a buy on its own: put the trade through Watch after 9:45.
       </p>
     </Panel>
   );
@@ -189,7 +302,7 @@ function Gaps({ gaps, pre }: { gaps: GapRead[]; pre: boolean }) {
 }
 
 export default function BriefPage() {
-  const { data, error } = usePoll<Brief>("/api/brief", 20_000);
+  const { data, error } = usePoll<Brief>("/api/brief", 10_000);
   if (!data) return error ? <PageError message={error} /> : <PageSkeleton label="Writing the brief…" />;
 
   const b = data;

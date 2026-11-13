@@ -36,6 +36,12 @@ export interface IdeaCheck {
   /** what to do about it, in one or two sentences */
   action: string;
   items: CheckItem[];
+  /** for a Go: A (score 80+) is full plan size, B (70-79) is half */
+  grade?: "A" | "B";
+  /** standard: sized by the plan. lottery: a far out-of-the-money contract, capped at 2% of the account */
+  lane?: "standard" | "lottery";
+  /** how often the trade has to work to break even at its target and stop, and what the options market gives the target */
+  payoff?: { breakeven: number; implied?: number; gain: number; loss: number };
   /** where the move stands: is there still room, or is this chasing */
   entry?: "early" | "in play" | "late" | "against";
   /** the user already holds this contract (from the trade log) */
@@ -103,6 +109,7 @@ export interface PaperTrade {
   paused?: boolean;
   /** what opened it: a morning pick (the default) or a Go verdict from the trade check */
   source?: "pick" | "go";
+  lane?: "standard" | "lottery";
   /** for a Go: the check's score and entry timing when it fired */
   score?: number;
   entryTag?: string;

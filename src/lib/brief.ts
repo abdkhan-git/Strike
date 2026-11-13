@@ -23,7 +23,7 @@ import { styleOf } from "./styles";
 const dayName = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
 
 export function buildBrief(): Promise<Brief> {
-  return cached("brief", 20_000, build, { stale: true });
+  return cached("brief3", 10_000, build, { stale: true });
 }
 
 async function build(): Promise<Brief> {
@@ -92,11 +92,20 @@ async function build(): Promise<Brief> {
   const spyGap = gaps.find((g) => g.symbol === "SPY");
   const focus: FocusItem[] = phase === "pre" || phase === "open" ? await focusList().catch(() => []) : [];
   const leaning = focus.filter((f) => f.lean !== "two-way");
+  // what you hold, and whether the move behind it is still there
+  const heldLines = focus.filter((f) => f.held).map((f) => `You hold ${f.symbol} (${f.held!.label}): ${f.live.status.toLowerCase()}. ${f.live.note} ${f.held!.verdict}`);
   const focusLine = focus.length
     ? `Ones to watch: ${focus
+        .filter((f) => !f.held)
         .slice(0, 4)
-        .map((f) => (f.lean === "two-way" ? `${f.symbol} (${f.move >= 50 ? "big move likely, " : ""}direction unclear)` : `${f.symbol} ${f.lean} (${f.confidence.toLowerCase()})`))
-        .join("; ")}.${leaning.length ? " Each is only a buy once it confirms after 9:45." : ""}`
+        .map((f) => {
+          if (f.lean === "two-way") return `${f.symbol} (no agreed direction, not a trade)`;
+          const missing = f.gate.filter((c) => c.kind === "required" && !c.ok).map((c) => c.label.toLowerCase());
+          return f.ready
+            ? `${f.symbol} ${f.lean}: ${f.grade} setup, ${f.grade === "A" ? "full" : "half"} size, put it through Watch`
+            : `${f.symbol} leans ${f.lean}, not a trade (${missing.length ? `missing: ${missing.join(", ")}` : "too little agrees"})`;
+        })
+        .join("; ")}.${leaning.length ? " A lean is not a buy: the required conditions have to hold, and the grade sets the size." : ""}`
     : undefined;
 
   const today = plan.days.find((d) => d.day === day);
@@ -129,6 +138,7 @@ async function build(): Promise<Brief> {
           .map(gapWord)
           .join("; ")}. A pre-market gap is a lean, not a signal: wait for what the stock does with it after 9:30.`,
       );
+    for (const l of heldLines) lines.push(l);
     if (focusLine) lines.push(focusLine);
     const fills = meaningful.filter((g) => g.history && g.history.n >= 5 && g.history.filled / g.history.n >= 0.6);
     if (fills.length)
@@ -151,7 +161,8 @@ async function build(): Promise<Brief> {
     lines.push(phase === "closed" ? `The market is closed. Next session: ${dayName(nextDay)}. Picks are built at 9:45 ET.` : "Picks are built at 9:45 ET, once option flow has formed. Nothing is worth buying in the first 15 minutes.");
   } else if (phase === "open") {
     lines.push(spy ? `SPY is ${signedPct(spy.changePct)} at ${usd(spy.price)}. ${backdrop}` : backdrop);
-    if (focusLine) lines.push(focusLine.replace(" Each is only a buy once it confirms after 9:45.", ""));
+    for (const l of heldLines) lines.push(l);
+    if (focusLine) lines.push(focusLine);
     const failed = meaningful.filter((g) => g.state === "filled");
     const holding = meaningful.filter((g) => g.state === "holding" || g.state === "extending");
     if (failed.length || holding.length)

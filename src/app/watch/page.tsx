@@ -90,10 +90,14 @@ function IdeaForm({ onAdded }: { onAdded: () => void }) {
     }
     const sd = q.get("side");
     if (sd === "call" || sd === "put") setSide(sd);
+    const sz = Number(q.get("size"));
+    if (sz > 0 && sz <= 1) setSizeFactor(sz);
   }, []);
   const [exp, setExp] = useState<string | undefined>();
   const [strike, setStrike] = useState<number | undefined>();
   const [dollars, setDollars] = useState("");
+  /** share of the plan's size to start from: 0.5 when the Brief graded the setup B */
+  const [sizeFactor, setSizeFactor] = useState(1);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -105,8 +109,8 @@ function IdeaForm({ onAdded }: { onAdded: () => void }) {
 
   // default the dollars to the plan's size once it is known
   useEffect(() => {
-    if (!dollars && planSize) setDollars(String(Math.round(planSize)));
-  }, [planSize, dollars]);
+    if (!dollars && planSize) setDollars(String(Math.round(planSize * sizeFactor)));
+  }, [planSize, dollars, sizeFactor]);
 
   const { strikes, atm } = useMemo(() => {
     const ks = [...new Set((loaded?.contracts ?? []).filter((c) => c.type === side).map((c) => c.strike))].sort((a, b) => a - b);
@@ -298,6 +302,12 @@ function IdeaCard({ c, onRemove, onLog }: { c: IdeaCheck; onRemove: () => void; 
                   {i.symbol} <span className={up ? "text-up" : "text-down"}>{contractLabel(i)}</span>
                 </Link>
                 {c.spot !== undefined && <span className="num text-[12.5px] text-muted">{usd(c.spot)}</span>}
+                {c.grade && c.verdict === "go" && <Badge tone={c.grade === "A" ? "up" : "accent"}>{c.grade === "A" ? "A setup · full size" : "B setup · half size"}</Badge>}
+                {c.lane === "lottery" && (
+                  <Badge tone="warn" title="Delta under 0.25: a low-odds, high-payoff contract. Capped at 2% of the account and only allowed when the option is cheap.">
+                    Lottery ticket · 2% cap
+                  </Badge>
+                )}
                 {c.entry && <Badge tone={c.entry === "late" ? "down" : c.entry === "against" ? "warn" : "mute"}>{ENTRY[c.entry]}</Badge>}
                 {i.source === "signal" && <Badge tone="accent" title="Strike queued this from a strong signal that was not yet a buy. It is removed after today.">From a signal</Badge>}
               </div>
@@ -339,6 +349,19 @@ function IdeaCard({ c, onRemove, onLog }: { c: IdeaCheck; onRemove: () => void; 
             {c.needs && c.spot !== undefined && (
               <li>
                 For the target, {i.symbol} has to reach <span className="num text-fg">{usd(c.needs.price)}</span> ({signedPct(c.needs.movePct, 2)}) about halfway through the hold.
+              </li>
+            )}
+            {c.payoff && (
+              <li>
+                Pays <span className="num text-up">+{usd(c.payoff.gain, 0)}</span> at the target, costs <span className="num text-down">−{usd(c.payoff.loss, 0)}</span> at the stop: it has
+                to work <span className="num text-fg">{pct(c.payoff.breakeven, 0)}</span> of the time to break even.
+                {c.payoff.implied !== undefined && (
+                  <>
+                    {" "}
+                    The options market gives the target about <span className="num text-fg">{pct(c.payoff.implied, 0)}</span>
+                    {c.payoff.implied >= c.payoff.breakeven ? ", so the price alone is fair." : ": the rest has to come from the checks on the right."}
+                  </>
+                )}
               </li>
             )}
             {c.marketOrderCost !== undefined && c.marketOrderCost >= 1 && (

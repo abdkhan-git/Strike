@@ -24,9 +24,13 @@ export interface GapRead {
   symbol: string;
   prevClose: number;
   price: number;
+  /** a normal day's range (14-day ATR) */
+  atr: number;
   phase: "pre" | "open" | "none";
   /** the regular session's first price */
   open?: number;
+  /** today's high and low so far (pre-market before 9:30, the regular session after) */
+  day?: { high: number; low: number };
   pre?: { last: number; high: number; low: number; volume: number; /** pre-market volume as a share of a normal day's */ volShare?: number };
   gapPct: number;
   gapAtr: number;
@@ -78,7 +82,7 @@ function gapHistory(daily: Bar[], dir: number, size: number) {
  */
 export function readGap(symbol: string, daily: Bar[], today: Bar[], pre: Bar[], price: number, prevClose: number): GapRead {
   const atr = atr14(daily);
-  const base = { symbol, prevClose, price };
+  const base = { symbol, prevClose, price, atr };
   if (!(atr > 0) || !(prevClose > 0)) return { ...base, phase: "none", gapPct: 0, gapAtr: 0, state: "none", value: 0, note: "not enough history to read the gap" };
   const avgVol = daily.slice(-20).reduce((s, b) => s + b.v, 0) / Math.max(1, Math.min(20, daily.length));
 
@@ -92,7 +96,7 @@ export function readGap(symbol: string, daily: Bar[], today: Bar[], pre: Bar[], 
     const dir = sgn(gapAtr);
     const preInfo = { last, high: Math.max(...pre.map((b) => b.h)), low: Math.min(...pre.map((b) => b.l)), volume, volShare };
     if (Math.abs(gapAtr) < 0.3)
-      return { ...base, price: last, phase: "pre", pre: preInfo, gapPct: last / prevClose - 1, gapAtr, state: "none", value: 0, note: `pre-market ${pctTxt(last / prevClose - 1)}, too small to mean anything (${Math.abs(gapAtr).toFixed(1)}× a normal day)` };
+      return { ...base, price: last, phase: "pre", pre: preInfo, day: { high: preInfo.high, low: preInfo.low }, gapPct: last / prevClose - 1, gapAtr, state: "none", value: 0, note: `pre-market ${pctTxt(last / prevClose - 1)}, too small to mean anything (${Math.abs(gapAtr).toFixed(1)}× a normal day)` };
     const history = gapHistory(daily, dir, Math.abs(gapAtr));
     // a gap counts toward continuation only as far as this stock's own gaps have continued
     const lean = history && history.n >= 5 ? 2 * (history.continued / history.n) - 1 : 0.3;
@@ -104,6 +108,7 @@ export function readGap(symbol: string, daily: Bar[], today: Bar[], pre: Bar[], 
       price: last,
       phase: "pre",
       pre: preInfo,
+      day: { high: preInfo.high, low: preInfo.low },
       gapPct: last / prevClose - 1,
       gapAtr,
       state: "pre-market",
@@ -117,6 +122,7 @@ export function readGap(symbol: string, daily: Bar[], today: Bar[], pre: Bar[], 
 
   // --- after the open: what the stock is doing with the gap ----------------------------
   const open = today[0].o;
+  const day = { high: Math.max(price, ...today.map((b) => b.h)), low: Math.min(price, ...today.map((b) => b.l)) };
   const gapAtr = (open - prevClose) / atr;
   const dir = sgn(gapAtr);
   const minutes = today.length;
@@ -133,7 +139,7 @@ export function readGap(symbol: string, daily: Bar[], today: Bar[], pre: Bar[], 
   const orNote = range ? `; ${range.side === "inside" ? "inside" : range.side} the opening range ($${range.low.toFixed(2)}–$${range.high.toFixed(2)})` : "";
 
   if (Math.abs(gapAtr) < 0.3)
-    return { ...base, phase: "open", open, gapPct: open / prevClose - 1, gapAtr, state: "none", range, value: orValue, note: `no meaningful gap (${pctTxt(open / prevClose - 1)} at the open)${orNote}` };
+    return { ...base, phase: "open", open, day, gapPct: open / prevClose - 1, gapAtr, state: "none", range, value: orValue, note: `no meaningful gap (${pctTxt(open / prevClose - 1)} at the open)${orNote}` };
 
   const fill = (open - price) / (open - prevClose);
   const state = fill <= 0 ? "extending" : fill < 0.5 ? "holding" : fill < 1 ? "fading" : "filled";
@@ -148,6 +154,7 @@ export function readGap(symbol: string, daily: Bar[], today: Bar[], pre: Bar[], 
     ...base,
     phase: "open",
     open,
+    day,
     gapPct: open / prevClose - 1,
     gapAtr,
     fill,

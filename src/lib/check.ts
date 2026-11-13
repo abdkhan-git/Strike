@@ -1,5 +1,5 @@
 import { brokerView } from "./broker";
-import { bsPrice } from "./bs";
+import { bsPrice, probAbove } from "./bs";
 import { cached } from "./cache";
 import { marketContext } from "./context";
 import type { CheckItem, Idea, IdeaCheck, MarketContext } from "./desk";
@@ -30,9 +30,21 @@ import type { PlanView } from "./types";
  *   timing      session, time left today, earnings and scheduled events before expiry
  *   size        cost against the plan's risk per trade, the account and cash
  *
- * Verdict: "skip" when any disqualifying check fails or the score is under 45. "go" when
- * nothing fails, the score is 70 or more, and the direction check itself passes (plus the
- * momentum check for a same-day contract). Otherwise "wait".
+ * Lottery lane: a contract with a delta under 0.25 is a low-odds, high-payoff bet. It is
+ * allowed, on two conditions a desk would insist on: the cost is capped at 2% of the
+ * account (most of these expire worthless, so the edge only exists across many small
+ * ones), and the option must be cheap, with implied volatility no more than 1.2× what the
+ * stock has really been doing.
+ *
+ * Payoff: every check reports how often the trade must work to break even at its target
+ * and stop, next to the options market's own odds of the stock reaching the target level
+ * in the hold. The market's odds are usually a little short of break-even: the edge has
+ * to come from the other checks, and this line shows how much of one is needed.
+ *
+ * Verdict: "skip" when any disqualifying check fails or the score is under 45. "go" only
+ * when nothing fails and the direction, entry-timing and reversal checks all pass outright
+ * (plus momentum for a same-day contract): with a score of 80 or more it is an A setup at
+ * full plan size, from 70 to 79 a B setup at half size. Anything less is "wait".
  */
 
 type Status = CheckItem["status"];
@@ -81,6 +93,8 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
   const mins = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
   const hoursLeft = Math.max(0, (16 * 60 - mins) / 60);
 
+  // far out of the money: low odds, high payoff. Judged in its own lane, with its own size cap.
+  const lottery = Math.abs(c.delta) < 0.25;
   const items: (CheckItem & { weight: number; hard?: boolean })[] = [];
   const add = (key: string, label: string, status: Status, detail: string, weight: number, hard = false) => items.push({ key, label, status, detail, weight, hard });
 
@@ -191,8 +205,8 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
     add(
       "price",
       "Option price",
-      r <= 1.4 ? "pass" : r <= 2 ? "warn" : "fail",
-      `Implied volatility ${pct(c.iv, 0)} against ${pct(rv, 0)} realized over 20 days: you pay for ${r.toFixed(1)}× the movement the stock has been making.`,
+      lottery ? (r <= 1.2 ? "pass" : "fail") : r <= 1.4 ? "pass" : r <= 2 ? "warn" : "fail",
+      `Implied volatility ${pct(c.iv, 0)} against ${pct(rv, 0)} realized over 20 days: you pay for ${r.toFixed(1)}× the movement the stock has been making.${lottery ? " A lottery ticket is only worth buying when it is cheap: 1.2× or less." : ""}`,
       5,
     );
   }
@@ -245,12 +259,14 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
   // --- size ----------------------------------------------------------------------
   let planSize: IdeaCheck["planSize"];
   if (plan) {
-    const base = plan.budget > 0 ? plan.budget : plan.equity * plan.settings.riskPerTrade;
+    const planBase = plan.budget > 0 ? plan.budget : plan.equity * plan.settings.riskPerTrade;
+    // a lottery ticket is sized to be lost: 2% of the account, never more than the plan's own size
+    const base = lottery ? Math.min(planBase, plan.equity * 0.02) : planBase;
     const atPlan = buyInstruction(c, { budget: base, horizon });
     planSize = { budget: base, qty: atPlan.overBudget ? 0 : atPlan.qty, cost: atPlan.cost };
     const share = ins.cost / Math.max(plan.equity, 1);
     const overCash = cash !== undefined && cash > 0 && ins.cost > cash;
-    const status: Status = plan.halted || overCash || ins.cost > base * 2 ? "fail" : ins.cost > base * 1.05 ? "warn" : "pass";
+    const status: Status = plan.halted || overCash || ins.cost > base * (lottery ? 1.05 : 2) ? "fail" : ins.cost > base * 1.05 ? "warn" : "pass";
     const stopLoss = ins.maxLoss;
     add(
       "size",
@@ -258,7 +274,9 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
       status,
       plan.halted
         ? "Your plan has paused new trades today: the daily loss limit was reached."
-        : `${usd(ins.cost, 0)} is ${pct(share, 0)} of your ${usd(plan.equity, 0)} account; your plan puts ${usd(base, 0)} on one trade${
+        : `${usd(ins.cost, 0)} is ${pct(share, 0)} of your ${usd(plan.equity, 0)} account; ${
+            lottery ? `this is a lottery ticket (delta ${Math.abs(c.delta).toFixed(2)}), capped at 2% of the account: ${usd(base, 0)}` : `your plan puts ${usd(base, 0)} on one trade`
+          }${
             planSize.qty ? ` (${planSize.qty} contract${planSize.qty === 1 ? "" : "s"})` : " (not enough for one contract)"
           }. The stop alone would cost ${usd(stopLoss, 0)}${overCash ? `, and it is more than your ${usd(cash!, 0)} cash` : ""}.`,
       5,
@@ -275,12 +293,19 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
   // a go needs the direction itself to pass, and for a same-day contract the short-term momentum too:
   // a pile of secondary checks cannot stand in for the trade having a reason
   const status = (key: string) => items.find((i) => i.key === key)?.status;
-  const core = status("direction") === "pass" && (!sameDay || status("momentum") === "pass");
+  // ...and the entry must not be late, nothing may warn of a reversal, and momentum must not be against it
+  const core =
+    status("direction") === "pass" &&
+    status("entry") === "pass" &&
+    status("reversal") === "pass" &&
+    status("momentum") !== "fail" &&
+    (!sameDay || status("momentum") === "pass");
   const sizeOnly = blockers.length > 0 && blockers.every((b) => b.key === "size") && !plan?.halted;
 
   let verdict: IdeaCheck["verdict"];
   let headline: string;
   let action: string;
+  let grade: IdeaCheck["grade"];
   if (blockers.length && !sizeOnly) {
     verdict = "skip";
     headline = `Skip: ${blockers.map((b) => b.label.toLowerCase()).join(", ")} ${blockers.length === 1 ? "rules" : "rule"} it out`;
@@ -297,11 +322,16 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
         ? `Cut it to ${planSize.qty} contract${planSize.qty === 1 ? "" : "s"} (${usd(planSize.cost, 0)}). At ${usd(ins.cost, 0)} one stop-out takes ${usd(ins.maxLoss, 0)} out of the account.`
         : "One contract costs more than your plan allows on a trade. Pick a cheaper strike or skip it.";
   } else if (score >= 70 && fails.length === 0 && core) {
+    // A: everything lines up, full size. B: the must-haves pass with less behind them, half size.
+    grade = score >= 80 ? "A" : "B";
     verdict = open ? "go" : "closed";
-    headline = open ? "Go: the checks line up" : "Lines up, but the market is not open";
-    action = open
-      ? `Place a limit order, not a market order: ${ins.text}`
-      : "Re-check a few minutes after the open; this read is on stale prices.";
+    const half = planSize ? Math.max(1, Math.floor(planSize.qty / 2)) : 1;
+    headline = !open ? "Lines up, but the market is not open" : grade === "A" ? `Go: an A setup${lottery ? " (lottery size)" : ""}` : `Go at half size: a B setup${lottery ? " (lottery size)" : ""}`;
+    action = !open
+      ? "Re-check a few minutes after the open; this read is on stale prices."
+      : grade === "A"
+        ? `Place a limit order, not a market order: ${ins.text}`
+        : `Enough lines up to trade, not enough for full size: buy ${half} contract${half === 1 ? "" : "s"} at a limit of ${usd(ins.limit)}, with the same target (${usd(ins.targetPrice)}) and stop (${usd(ins.stopPrice)}).`;
   } else {
     verdict = open ? "wait" : "closed";
     const weak = items.filter((i) => i.status !== "pass").sort((x, y) => y.weight - x.weight)[0];
@@ -315,12 +345,20 @@ export async function checkIdea(idea: Idea, shared?: { plan?: PlanView; ctx?: Ma
   const holdT = Math.max(T * 0.5, 0);
   const needPrice = c.iv > 0 ? spotFor(c.type, ins.targetPrice, c.strike, holdT, c.iv, S) : undefined;
 
+  // payoff: how often it must work, against the market's own odds of the target level
+  const breakevenRate = ins.maxLoss / Math.max(ins.targetGain + ins.maxLoss, 1e-9);
+  const implied =
+    needPrice && c.iv > 0 && holdT > 0 ? Math.min(0.99, 2 * (call ? probAbove(S, needPrice, holdT, c.iv) : 1 - probAbove(S, needPrice, holdT, c.iv))) : undefined;
+
   return {
     idea,
     verdict,
     score,
     headline,
     action,
+    grade: verdict === "go" ? grade : undefined,
+    lane: lottery ? "lottery" : "standard",
+    payoff: { breakeven: breakevenRate, implied, gain: ins.targetGain, loss: ins.maxLoss },
     items: items.map(({ key, label, status, detail }) => ({ key, label, status, detail })),
     entry,
     contract: c,

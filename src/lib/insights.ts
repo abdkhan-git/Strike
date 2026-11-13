@@ -64,6 +64,12 @@ async function writeBrief(symbol: string, hs: Headline[]): Promise<Brief | undef
   };
 }
 
+/** The news digest for a symbol if one has already been written. Never starts a model call. */
+export function peekBrief(symbol: string): Brief | undefined {
+  const b = briefs.get(symbol)?.brief;
+  return b && Date.now() - b.at < 2 * BRIEF_TTL ? b : undefined;
+}
+
 export async function newsFor(symbol: string): Promise<NewsResult> {
   const hs = await headlines(symbol);
   const state = briefs.get(symbol) ?? { tried: 0, running: false };
